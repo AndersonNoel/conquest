@@ -15,77 +15,66 @@ A real-world capture-point game played outdoors. Teams race to scan QR codes at 
 
 ---
 
-## Publishing to the Internet (VPS)
+## Publishing to the Internet (VPS + Cloudflare)
+
+Cloudflare handles HTTPS for visitors. The VPS only needs to serve plain HTTP on port 80 — no SSL certificates to manage on the server.
 
 ### What You Need
 
-- A Linux VPS
-- A domain name pointed at the server's IP address
-- SSH access to the server
+- A Linux VPS (DigitalOcean, Linode, Hetzner, AWS EC2, etc.) — a $6/month droplet is plenty
+- A domain name
+- A free [Cloudflare](https://cloudflare.com) account
 
-### One-Time Server Setup
+### One-Time Cloudflare Setup
 
-**1. Install Docker on the server**
+**1. Add your domain to Cloudflare**
+
+1. Sign up at [cloudflare.com](https://cloudflare.com) and click **Add a site**
+2. Enter your domain and select the free plan
+3. Update your domain's nameservers to Cloudflare's (done at your registrar)
+
+**2. Point your domain at the VPS**
+
+In Cloudflare's DNS dashboard, add an A record:
+
+| Type | Name | Content | Proxy status |
+|---|---|---|---|
+| A | `@` | `<your VPS public IP>` | Proxied (orange cloud ☁️) |
+
+**3. Set the SSL mode**
+
+In Cloudflare: **SSL/TLS → Overview → Flexible**
+
+This means Cloudflare handles HTTPS for visitors, and connects to your VPS over plain HTTP on port 80. No certificate is needed on the server.
+
+---
+
+### Option A — Deploy via SSH (manual)
+
+**1. Install Docker on the VPS**
 ```bash
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
-# Log out and back in so the group change takes effect
+# Log out and back in for the group change to take effect
 ```
 
 **2. Open the firewall**
 ```bash
-sudo ufw allow 22    # SSH
-sudo ufw allow 80    # HTTP (Caddy redirects this to HTTPS automatically)
-sudo ufw allow 443   # HTTPS
+sudo ufw allow 22   # SSH
+sudo ufw allow 80   # HTTP — Cloudflare connects here
 sudo ufw enable
 ```
 
-**3. Point your domain at the server**
-
-In your domain registrar's DNS settings, add an A record:
-```
-@   A   <your server's public IP>
-```
-DNS propagation can take a few minutes to an hour.
-
----
-
-### Deploy the App
-
-**1. Copy the project to the server**
-
-From your local machine:
+**3. Clone the repo and create a `.env` file**
 ```bash
-scp -r /path/to/game_wedsite user@your-server-ip:~/conquest
-```
-
-Or clone from GitHub directly on the server:
-```bash
-git clone git@github.com:AndersonNoel/conquest.git ~/conquest
-```
-
-**2. Create the `.env` file on the server**
-```bash
+git clone https://github.com/AndersonNoel/conquest.git ~/conquest
 cd ~/conquest
 
-# Generate a strong random secret
+# Generate a strong random secret (run this and copy the output)
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
-# Create the .env file and paste in the generated secret
 cp .env.example .env
-nano .env
-```
-
-Your `.env` should look like:
-```
-SESSION_SECRET=paste-your-generated-secret-here
-```
-
-**3. Edit the `Caddyfile`**
-
-Replace `yourdomain.com` with your actual domain:
-```bash
-nano Caddyfile
+nano .env   # paste the generated value as SESSION_SECRET
 ```
 
 **4. Start the site**
@@ -93,45 +82,53 @@ nano Caddyfile
 docker compose up -d --build
 ```
 
-Caddy will automatically obtain a free TLS certificate from Let's Encrypt. The site should be live at `https://yourdomain.com`
-
-**5. Check that it's running**
+**To update later:**
 ```bash
-docker compose ps        # both 'app' and 'caddy' should show as running
-docker compose logs app  # view application logs
+cd ~/conquest && git pull && docker compose up -d --build
 ```
 
 ---
 
-### Updating the Site
+### Option B — Deploy via Portainer (web UI, no SSH needed after setup)
 
-After making changes locally:
+Portainer lets you deploy and update the site through a web interface — no SSH required after initial Portainer installation.
+
+**Prerequisites:** Portainer is installed and running on your VPS (typically at `http://<vps-ip>:9000`).
+
+**1. Generate a session secret**
+
+Run this anywhere you have Node.js installed and copy the output:
 ```bash
-# Option A — copy files directly
-scp -r /path/to/game_wedsite user@your-server-ip:~/conquest
-
-# Option B — push to GitHub then pull on the server
-git pull
-
-# Then rebuild on the server
-cd ~/conquest
-docker compose up -d --build
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
-Your game data (`data/` and `uploads/`) is stored on the host filesystem via Docker volumes and is **never affected by rebuilds**.
+**2. Create the stack in Portainer**
+
+1. Log in to Portainer
+2. Go to **Stacks → Add Stack**
+3. Select **Repository**
+4. Fill in:
+   - **Repository URL:** `https://github.com/AndersonNoel/conquest`
+   - **Branch:** `main`
+   - **Compose path:** `docker-compose.portainer.yml`
+5. Under **Environment variables**, add:
+   - Name: `SESSION_SECRET` — Value: *(paste the secret you generated)*
+6. Click **Deploy the stack**
+
+Portainer pulls the code, builds the image, and starts the container. The site is live at your domain.
+
+**To update later:** open the stack in Portainer and click **Pull and redeploy**. Your data is untouched.
 
 ---
 
-### Useful Commands
+### Useful Commands (SSH deployments)
 
 | Command | What it does |
 |---|---|
-| `docker compose up -d --build` | Build and start (or restart) everything |
-| `docker compose down` | Stop and remove containers |
+| `docker compose up -d --build` | Build and (re)start the container |
+| `docker compose down` | Stop and remove the container |
 | `docker compose logs -f app` | Follow live application logs |
-| `docker compose logs -f caddy` | Follow Caddy/SSL logs |
-| `docker compose restart app` | Restart just the game server |
-| `docker compose pull caddy && docker compose up -d` | Update Caddy to the latest version |
+| `docker compose restart app` | Restart without rebuilding |
 
 ---
 
@@ -152,22 +149,22 @@ The admin panel is at `http://localhost:3000/admin`.
 ## Project Structure
 
 ```
-├── server.js          # Express HTTP server and all API routes
-├── gameEngine.js      # Game state machine (rounds, timers, captures)
-├── store.js           # In-memory data store with JSON file persistence
+├── server.js                    # Express HTTP server and all API routes
+├── gameEngine.js                # Game state machine (rounds, timers, captures)
+├── store.js                     # In-memory data store with JSON file persistence
 ├── public/
-│   ├── index.html     # Player dashboard
-│   ├── admin.html     # Admin panel
-│   ├── login.html     # Login / register page
-│   ├── css/style.css  # All styles
+│   ├── index.html               # Player dashboard
+│   ├── admin.html               # Admin panel
+│   ├── login.html               # Login / register page
+│   ├── css/style.css            # All styles
 │   └── js/
-│       ├── dashboard.js  # Player dashboard logic
-│       └── admin.js      # Admin panel logic
-├── data/              # Runtime data (gitignored — Docker volume in production)
-├── uploads/           # Uploaded map image (gitignored — Docker volume in production)
+│       ├── dashboard.js         # Player dashboard logic
+│       └── admin.js             # Admin panel logic
+├── data/                        # Runtime data (gitignored — volume in production)
+├── uploads/                     # Uploaded map image (gitignored — volume in production)
 ├── Dockerfile
-├── docker-compose.yml
-└── Caddyfile
+├── docker-compose.yml           # SSH / manual deployment
+└── docker-compose.portainer.yml # Portainer deployment
 ```
 
 ---
@@ -180,6 +177,5 @@ The only things that need setting before first run:
 
 | Setting | Where |
 |---|---|
-| Domain name | `Caddyfile` |
-| Session secret | `.env` file (`SESSION_SECRET`) |
+| Session secret | `.env` file (SSH) or Portainer environment variables |
 | Admin password | Set interactively on first visit to `/admin` |

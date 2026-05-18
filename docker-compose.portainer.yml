@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "80:3000"   # Cloudflare connects to port 80; the app listens on 3000 inside
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Set SESSION_SECRET in Portainer's "Environment variables" section when creating the stack.
+      - SESSION_SECRET=${SESSION_SECRET}
+    volumes:
+      # Named volumes managed by Portainer — visible in the Portainer "Volumes" UI.
+      # These persist across redeployments and stack updates.
+      - conquest_data:/app/data
+      - conquest_uploads:/app/uploads
+
+volumes:
+  conquest_data:
+  conquest_uploads:
