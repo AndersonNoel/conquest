@@ -28,6 +28,11 @@ const app        = express();
 const httpServer = createServer(app);
 const io         = new Server(httpServer);
 
+// Trust the X-Forwarded-Proto header set by Cloudflare (and other proxies).
+// Without this, Express sees the Cloudflare→server leg as plain HTTP and
+// refuses to set secure session cookies, breaking login entirely.
+app.set('trust proxy', 1);
+
 // Give the game engine a reference to Socket.IO so it can push events
 // (timer ticks, captures, resets, etc.) to all connected clients.
 gameEngine.init({ io });
