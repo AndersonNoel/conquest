@@ -1,0 +1,8 @@
+node_modules/
+
+# Runtime data — contains hashed passwords; mounted as Docker volumes in production
+data/
+uploads/
+
+# Local secrets — never commit
+.env

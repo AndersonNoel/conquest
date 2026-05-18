@@ -1,0 +1,48 @@
+services:
+
+  # ── Node.js game server ──────────────────────
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # SESSION_SECRET is read from the .env file on the host (see .env.example).
+      # It must be a long random string — never commit the real value to git.
+      - SESSION_SECRET=${SESSION_SECRET}
+    volumes:
+      # Bind-mount data and uploads from the host so they survive container
+      # rebuilds and updates.  Docker will create these directories if they
+      # don't exist yet, but they'll be owned by root — see the deploy notes.
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    networks:
+      - web
+    # Don't expose port 3000 to the outside world — Caddy proxies it internally.
+
+  # ── Caddy reverse proxy (auto HTTPS) ────────
+  # Caddy automatically obtains and renews a Let's Encrypt certificate for
+  # your domain.  It handles HTTP→HTTPS redirects with no extra config.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"      # HTTP (redirected to HTTPS by Caddy automatically)
+      - "443:443"    # HTTPS
+      - "443:443/udp" # HTTP/3 (QUIC) — optional but free perf boost
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddy stores its TLS certificates and ACME account in named volumes
+      # so they persist across container restarts.
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+networks:
+  # Internal bridge network — only containers on this network can reach each other.
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:

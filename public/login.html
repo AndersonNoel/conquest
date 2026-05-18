@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Game</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .join-page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: radial-gradient(ellipse at 50% 0%, #1e2d1e 0%, var(--bg) 70%);
+    }
+
+    .join-box {
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .join-logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .join-logo-icon {
+      font-size: 3.5rem;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .join-logo-title {
+      font-size: 2rem;
+      font-weight: 900;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .join-name-input {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-input);
+      border: 2px solid var(--border-light);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 14px 18px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      font-family: inherit;
+      outline: none;
+      text-align: center;
+      letter-spacing: 0.04em;
+      transition: border-color 0.15s;
+      margin-bottom: 10px;
+    }
+
+    .join-name-input:focus { border-color: var(--primary); }
+
+    .join-name-input::placeholder {
+      color: var(--text-dim);
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .join-btn {
+      width: 100%;
+      padding: 16px;
+      font-size: 1.1rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      margin-top: 4px;
+      border-radius: var(--radius);
+      background: var(--primary);
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      font-family: inherit;
+      text-transform: uppercase;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .join-btn:hover  { background: var(--primary-hover); transform: translateY(-1px); }
+    .join-btn:active { transform: translateY(0); }
+    .join-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .not-found-box {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+
+    .not-found-box p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin: 0 0 12px;
+      line-height: 1.5;
+    }
+
+    .not-found-box strong { color: var(--text); }
+
+    .btn-create {
+      width: 100%;
+      padding: 12px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      border-radius: var(--radius);
+      background: transparent;
+      border: 2px solid var(--primary);
+      color: var(--primary);
+      cursor: pointer;
+      font-family: inherit;
+      text-transform: uppercase;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .btn-create:hover { background: var(--primary); color: #fff; }
+    .btn-create:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .admin-link-wrap {
+      margin-top: 32px;
+      text-align: center;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+
+    .admin-link {
+      color: var(--text-dim);
+      font-size: 0.82rem;
+      text-decoration: none;
+      letter-spacing: 0.04em;
+      transition: color 0.15s;
+    }
+
+    .admin-link:hover { color: var(--text-muted); }
+  </style>
+</head>
+<body class="join-page">
+  <div class="join-box">
+
+    <div class="join-logo">
+      <span class="join-logo-icon">&#9876;</span>
+      <div class="join-logo-title">Capture</div>
+    </div>
+
+    <div id="alert-box"></div>
+
+    <form id="login-form">
+      <input class="join-name-input" type="text" id="username"
+             placeholder="Callsign..." autocomplete="username"
+             maxlength="30" autocorrect="off" autocapitalize="words" required>
+      <input class="join-name-input" type="password" id="password"
+             placeholder="Password..." autocomplete="current-password"
+             maxlength="100" required>
+      <button type="submit" class="join-btn" id="login-btn">Log In</button>
+    </form>
+
+    <div class="admin-link-wrap">
+      <a class="admin-link" href="/admin">Admin panel &rsaquo;</a>
+    </div>
+
+  </div>
+
+  <script>
+    const alertBox = document.getElementById('alert-box');
+    const loginBtn = document.getElementById('login-btn');
+
+    // Auto-focus the callsign field on desktop only — on mobile the keyboard
+    // popping up immediately can be disorienting.
+    if (window.innerWidth > 600) document.getElementById('username').focus();
+
+    document.getElementById('login-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      alertBox.innerHTML = '';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      if (!username || !password) return;
+
+      loginBtn.disabled    = true;
+      loginBtn.textContent = 'Logging in...';
+
+      const res  = await fetch('/api/login', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        // data.redirect may point back to a QR-code capture URL if the player
+        // was redirected here mid-scan.
+        window.location.href = data.redirect || '/dashboard';
+        return;
+      }
+
+      loginBtn.disabled    = false;
+      loginBtn.textContent = 'Log In';
+
+      // 404 means the callsign doesn't exist yet.  Rather than a separate
+      // registration page, offer an inline "Create Account" button so new
+      // players can join in one step without navigating away.
+      if (res.status === 404) {
+        alertBox.innerHTML = `
+          <div class="not-found-box">
+            <p>No account found for <strong>${escHtml(username)}</strong>.<br>
+               Would you like to create one with this callsign and password?</p>
+            <button class="btn-create" id="create-btn">Create Account</button>
+          </div>`;
+
+        document.getElementById('create-btn').addEventListener('click', async () => {
+          const btn = document.getElementById('create-btn');
+          btn.disabled    = true;
+          btn.textContent = 'Creating...';
+
+          // Re-use the same username and password already in the form fields —
+          // the server validates and confirms they match (confirm: password).
+          const r    = await fetch('/api/register', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ username, password, confirm: password })
+          });
+          const d = await r.json();
+
+          if (d.success) {
+            window.location.href = d.redirect || '/dashboard';
+          } else {
+            alertBox.innerHTML = `<div class="alert alert-error">${d.error}</div>`;
+          }
+        });
+      } else {
+        alertBox.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
+      }
+    });
+
+    // Escape user-supplied text before inserting into innerHTML to prevent XSS.
+    function escHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+  </script>
+</body>
+</html>

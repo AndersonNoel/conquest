@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Game</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="dashboard-page">
+
+  <!-- Game Over Overlay -->
+  <div class="game-over-overlay hidden" id="game-over-overlay">
+    <div class="game-over-content">
+      <div class="game-over-title">&#127942; GAME OVER &#127942;</div>
+      <div class="game-over-subtitle">Final Standings</div>
+      <div class="podium-list" id="game-over-podium"></div>
+      <button class="btn btn-ghost btn-lg" onclick="dismissGameOver()">Back to Map</button>
+    </div>
+  </div>
+
+  <!-- SOS Overlay -->
+  <div class="sos-overlay hidden" id="sos-overlay">
+    <div class="sos-title">&#128680; SOS &#128680;</div>
+    <div class="sos-text">EMERGENCY — ALL PLAYERS RETURN TO BASE</div>
+    <div class="sos-caller" id="sos-caller"></div>
+    <button class="sos-dismiss" onclick="document.getElementById('sos-overlay').classList.add('hidden')">
+      Acknowledge
+    </button>
+  </div>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="site-logo">&#9876; <span class="hdr-lbl">Capture</span></div>
+      <div class="header-spacer"></div>
+      <div class="header-player-info" id="header-player-info"></div>
+      <button class="btn btn-ghost btn-sm chat-header-btn" id="chat-toggle-btn" onclick="toggleChat()">
+        &#128172;<span class="hdr-lbl"> Chat</span>
+        <span class="chat-unread-badge hidden" id="chat-unread-badge"></span>
+      </button>
+      <button class="btn btn-sm player-sos-btn" onclick="triggerPlayerSOS()">
+        &#128680;<span class="hdr-lbl"> SOS</span>
+      </button>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">
+        <span class="hdr-lbl">Logout</span><span class="hdr-icon">&#10005;</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Info bar: status · round · timer · scores -->
+  <div class="info-bar">
+    <div class="info-bar-main">
+      <div id="info-status"></div>
+      <div class="info-sep"></div>
+      <div id="info-round" class="info-chip"></div>
+      <div class="info-sep"></div>
+      <div class="info-timer-group">
+        <div class="info-timer" id="info-timer">--:--</div>
+        <div class="info-timer-label" id="info-timer-label">waiting</div>
+      </div>
+    </div>
+    <div class="info-bar-scores" id="info-scores"></div>
+  </div>
+
+  <!-- Full-screen map -->
+  <div class="map-fullscreen" id="map-fullscreen">
+    <div class="map-no-image" id="map-placeholder">
+      <span style="font-size:3rem">&#128506;</span>
+      <span>Map not yet configured</span>
+    </div>
+    <div id="map-viewport">
+      <img id="map-img" class="map-bg-img" alt="Game map" style="display:none"
+           onload="onMapImageLoad()">
+      <div class="map-overlay" id="map-overlay"></div>
+    </div>
+  </div>
+
+  <!-- Chat backdrop (closes panel when tapped outside on mobile) -->
+  <div class="chat-backdrop" id="chat-backdrop" onclick="toggleChat()"></div>
+
+  <!-- Chat Panel -->
+  <div class="chat-panel" id="chat-panel">
+    <div class="chat-panel-header">
+      <div class="chat-tabs">
+        <button class="chat-tab-btn active" data-channel="team">
+          My Team
+          <span class="chat-tab-badge hidden" id="chat-tab-badge-team"></span>
+        </button>
+        <button class="chat-tab-btn" data-channel="all">
+          All Players
+          <span class="chat-tab-badge hidden" id="chat-tab-badge-all"></span>
+        </button>
+      </div>
+      <button class="chat-close-btn" onclick="toggleChat()">&#10005;</button>
+    </div>
+    <div class="chat-messages" id="chat-messages"></div>
+    <form class="chat-input-row" id="chat-form">
+      <input class="chat-input" id="chat-input" placeholder="Type a message…"
+             maxlength="300" autocomplete="off">
+      <button type="submit" class="chat-send-btn">&#9658;</button>
+    </form>
+  </div>
+
+  <!-- Capture FAB -->
+  <label class="capture-fab">
+    &#128247; <span>Capture</span>
+    <input type="file" accept="image/*" capture="environment" style="display:none" tabindex="-1">
+  </label>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

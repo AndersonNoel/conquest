@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Capture Game</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .team-row-config {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+    }
+    .team-row-config:last-child { border-bottom: none; }
+    .qr-preview img { max-width: 200px; border-radius: 4px; }
+  </style>
+</head>
+<body class="page-wrap">
+
+  <!-- SOS confirm modal -->
+  <div class="modal-overlay hidden" id="sos-modal">
+    <div class="modal-box" style="border-color:var(--danger)">
+      <div class="modal-title" style="color:var(--danger)">&#9888; Emergency SOS</div>
+      <p style="color:var(--text-muted); margin-bottom:12px;">
+        This will send an emergency alert to ALL connected players telling them to return to base immediately.
+      </p>
+      <p style="font-weight:700; color:var(--text)">Are you sure?</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('sos-modal').classList.add('hidden')">Cancel</button>
+        <button class="btn btn-danger" id="sos-confirm-btn">YES — Send SOS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add location modal -->
+  <div class="modal-overlay hidden" id="add-location-modal">
+    <div class="modal-box">
+      <div class="modal-title">Add Location</div>
+      <div class="form-group">
+        <label class="form-label">Location Name</label>
+        <input class="form-input" id="new-location-name" placeholder="e.g. Hilltop, Bridge, Bunker" maxlength="50">
+      </div>
+      <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:4px">Position: <span id="location-pos-display"></span></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancel-location-btn">Cancel</button>
+        <button class="btn btn-primary" id="save-location-btn">Add Location</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit location modal -->
+  <div class="modal-overlay hidden" id="edit-location-modal">
+    <div class="modal-box">
+      <div class="modal-title">Edit Location</div>
+      <input type="hidden" id="edit-location-id">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input class="form-input" id="edit-location-name" maxlength="50">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-danger btn-sm" id="delete-location-btn" style="margin-right:auto">Delete</button>
+        <button class="btn btn-ghost" id="cancel-edit-btn">Cancel</button>
+        <button class="btn btn-primary" id="save-edit-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login overlay -->
+  <div class="modal-overlay" id="login-overlay">
+    <div class="modal-box" style="text-align:center">
+      <div class="auth-title" style="font-size:1.3rem; margin-bottom:4px">&#9876; Admin Access</div>
+      <div id="login-subtitle" style="color:var(--text-muted); font-size:0.9rem; margin-bottom:20px">Enter admin password</div>
+      <div id="login-alert"></div>
+      <div class="form-group">
+        <input class="form-input" type="password" id="admin-password" placeholder="Admin password" style="text-align:center">
+      </div>
+      <button class="btn btn-primary btn-full" id="admin-login-btn">Enter</button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="site-logo">&#9876; <span class="hdr-lbl">Admin Panel</span><span class="hdr-icon">Admin</span></div>
+      <div class="header-spacer"></div>
+      <div id="admin-game-state"></div>
+      <button class="btn btn-ghost btn-sm" onclick="adminLogout()">
+        <span class="hdr-lbl">Logout</span><span class="hdr-icon">&#10005;</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div class="status-bar-inner" id="admin-status-bar">
+      <span style="color:var(--text-muted); font-size:0.85rem">Connecting...</span>
+    </div>
+  </div>
+
+  <!-- Admin content -->
+  <div class="admin-page" id="admin-content" style="display:none">
+
+    <!-- Tab bar (desktop) / dropdown (mobile) -->
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="settings">&#9881; Settings</button>
+      <button class="tab-btn" data-tab="map">&#128506; Map</button>
+      <button class="tab-btn" data-tab="players">&#128100; Players</button>
+      <button class="tab-btn" data-tab="control">&#9654; Control</button>
+    </div>
+    <select class="tab-select" id="tab-select">
+      <option value="settings">⚙ Settings</option>
+      <option value="map">🗺 Map</option>
+      <option value="players">👤 Players</option>
+      <option value="control">▶ Control</option>
+    </select>
+
+    <!-- SETTINGS TAB -->
+    <div class="tab-pane active" id="tab-settings">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Game Settings</div>
+          <div id="settings-alert"></div>
+          <form id="settings-form">
+            <div class="form-group">
+              <label class="form-label">Number of Teams</label>
+              <input class="form-input" type="number" name="num_teams" min="2" max="6" value="2">
+              <div class="form-hint">2–6 teams</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Reset Interval (minutes)</label>
+              <input class="form-input" type="number" name="reset_interval_minutes" min="1" max="120" value="10">
+              <div class="form-hint">How long between point resets</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Resets</label>
+              <input class="form-input" type="number" name="total_resets" min="1" max="99" value="5">
+              <div class="form-hint">Game ends after this many resets</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Point Value per Location</label>
+              <input class="form-input" type="number" name="max_point_value" min="1" max="100" value="10">
+              <div class="form-hint">Points assigned randomly (1 to this value)</div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Team Names &amp; Colors</div>
+          <div id="teams-alert"></div>
+          <div id="teams-config-list"></div>
+          <button class="btn btn-primary mt-16" id="save-teams-btn">Save Teams</button>
+
+          <hr class="divider" style="margin-top:24px">
+          <div class="card-title" style="margin-top:0">Admin Password</div>
+          <div id="pw-alert"></div>
+          <div class="form-group">
+            <input class="form-input" type="password" id="new-admin-pw" placeholder="New password (min 4 chars)">
+          </div>
+          <button class="btn btn-ghost btn-sm" id="change-pw-btn">Change Password</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAP TAB -->
+    <div class="tab-pane" id="tab-map">
+      <div class="card mb-16">
+        <div class="section-header">
+          <div class="card-title" style="margin-bottom:0">Map Image</div>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+            Upload Map
+            <input type="file" id="map-upload-input" accept="image/*" style="display:none">
+          </label>
+        </div>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+          Upload an image of your game area. Then <strong>click on the map</strong> to place location pins.
+        </p>
+        <div id="map-alert"></div>
+
+        <div class="map-container" id="admin-map-container" style="cursor:crosshair">
+          <div class="map-no-image" id="admin-map-placeholder">
+            <span style="font-size:2rem">&#128506;</span>
+            <span>No map uploaded yet</span>
+          </div>
+          <div class="map-overlay" id="admin-map-overlay"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-header">
+          <div class="card-title" style="margin-bottom:0">Locations</div>
+          <span style="font-size:0.85rem; color:var(--text-muted)" id="location-count"></span>
+        </div>
+        <div id="locations-list">
+          <p style="color:var(--text-muted); font-size:0.9rem">No locations yet. Click on the map to add them.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PLAYERS TAB -->
+    <div class="tab-pane" id="tab-players">
+      <div class="card">
+        <div class="section-header">
+          <div class="card-title" style="margin-bottom:0">Players</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" id="random-teams-btn">&#127922; Randomize Teams</button>
+            <button class="btn btn-ghost btn-sm" id="clear-players-btn" style="color:var(--danger); border-color:rgba(192,64,64,0.4)">&#128465; Clear All</button>
+          </div>
+        </div>
+        <div id="players-alert"></div>
+        <div id="players-table-wrap" style="overflow-x:auto; -webkit-overflow-scrolling:touch">
+          <p style="color:var(--text-muted); font-size:0.9rem">No players registered yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTROL TAB -->
+    <div class="tab-pane" id="tab-control">
+      <div class="grid-2" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-title">Game Status</div>
+          <div id="control-status-display"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Scoreboard</div>
+          <div id="control-scoreboard"></div>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-title">Game Controls</div>
+        <div id="control-alert"></div>
+
+        <div style="margin-bottom:16px;">
+          <label class="form-label">Countdown Before Start (optional)</label>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <input class="form-input" type="number" id="countdown-input" min="0" max="3600"
+                   placeholder="0" style="max-width:120px">
+            <span style="color:var(--text-muted); font-size:0.9rem">seconds (0 = start immediately)</span>
+          </div>
+        </div>
+
+        <div class="control-grid">
+          <button class="btn btn-primary big-game-btn" id="start-btn">&#9654; Start Game</button>
+          <button class="btn btn-warning big-game-btn" id="pause-btn" disabled>&#9646;&#9646; Pause</button>
+          <button class="btn btn-ghost big-game-btn" id="end-btn" disabled>&#9632; End Game</button>
+          <button class="btn btn-ghost big-game-btn" id="reset-btn">&#8635; Reset Game</button>
+        </div>
+      </div>
+
+      <div class="card" style="border-color:rgba(192,64,64,0.3)">
+        <div class="card-title" style="color:var(--danger)">&#9888; Emergency</div>
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:16px">
+          The SOS button alerts all players to return to base immediately.
+          Requires confirmation before sending.
+        </p>
+        <button class="sos-btn" id="sos-btn">&#128680; EMERGENCY SOS &#128680;</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

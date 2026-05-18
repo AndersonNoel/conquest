@@ -1,0 +1,5 @@
+# Replace yourdomain.com with your actual domain name.
+# Caddy will automatically get a free TLS certificate from Let's Encrypt.
+yourdomain.com {
+    reverse_proxy app:3000
+}
