@@ -102,14 +102,37 @@
   </div>
 
   <!-- Capture FAB -->
-  <label class="capture-fab">
+  <button class="capture-fab" onclick="openQrScanner()">
     &#128247; <span>Capture</span>
-    <input type="file" accept="image/*" capture="environment" style="display:none" tabindex="-1">
-  </label>
+  </button>
+
+  <!-- QR Scanner — shown full-screen when the Capture button is tapped -->
+  <div class="qr-scanner-modal hidden" id="qr-scanner-modal">
+    <!-- Live camera feed fills the background -->
+    <video id="qr-video" playsinline autoplay muted></video>
+    <!-- UI layer on top of the video -->
+    <div class="qr-ui">
+      <div class="qr-viewfinder">
+        <!-- Animated scan line sweeps up and down to indicate active scanning -->
+        <div class="qr-scan-line"></div>
+        <!-- Corner bracket decorations -->
+        <div class="qr-corner qr-tl"></div>
+        <div class="qr-corner qr-tr"></div>
+        <div class="qr-corner qr-bl"></div>
+        <div class="qr-corner qr-br"></div>
+      </div>
+      <p class="qr-hint">Point at a location QR code</p>
+      <button class="btn btn-ghost qr-close-btn" onclick="closeQrScanner()">&#10005; Cancel</button>
+    </div>
+    <!-- Hidden canvas used to extract image data from the video for jsQR to analyse -->
+    <canvas id="qr-canvas" style="display:none"></canvas>
+  </div>
 
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <!-- jsQR: pure-JS QR code decoder, no build step required -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script src="/js/dashboard.js"></script>
 </body>
 </html>

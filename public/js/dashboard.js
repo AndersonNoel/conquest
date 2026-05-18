@@ -544,6 +544,91 @@ socket.on('chatMessage', msg => {
   }
 });
 
+// ── QR Scanner ───────────────────────────────
+
+// Active camera stream — kept so we can stop all tracks when closing.
+let qrStream = null;
+// Whether the scan loop is running — set to false to exit the rAF loop.
+let qrActive = false;
+// requestAnimationFrame handle so we can cancel it on close.
+let qrFrame  = null;
+
+// Open the scanner: request camera access, start the video, begin scanning.
+async function openQrScanner() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('Camera not available on this device or browser', 'danger');
+    return;
+  }
+
+  document.getElementById('qr-scanner-modal').classList.remove('hidden');
+  qrActive = true;
+
+  try {
+    // Request the back-facing camera specifically — better for scanning printed QR codes.
+    qrStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    const video = document.getElementById('qr-video');
+    video.srcObject = qrStream;
+    await video.play();
+    scanQrFrame();
+  } catch {
+    closeQrScanner();
+    toast('Could not access the camera — please allow camera permissions', 'danger');
+  }
+}
+
+// Stop the camera and hide the scanner modal.
+function closeQrScanner() {
+  qrActive = false;
+  if (qrFrame)  { cancelAnimationFrame(qrFrame); qrFrame = null; }
+  if (qrStream) { qrStream.getTracks().forEach(t => t.stop()); qrStream = null; }
+  const video = document.getElementById('qr-video');
+  video.srcObject = null;
+  document.getElementById('qr-scanner-modal').classList.add('hidden');
+}
+
+// Called every animation frame while the scanner is open.
+// Draws the current video frame to a hidden canvas, feeds the pixel data
+// to jsQR, and navigates to the URL if a valid capture code is found.
+function scanQrFrame() {
+  if (!qrActive) return;
+
+  const video  = document.getElementById('qr-video');
+  const canvas = document.getElementById('qr-canvas');
+
+  // Wait until the video has enough data to render a frame.
+  if (video.readyState < video.HAVE_ENOUGH_DATA) {
+    qrFrame = requestAnimationFrame(scanQrFrame);
+    return;
+  }
+
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: 'dontInvert'
+  });
+
+  if (code) {
+    try {
+      const url = new URL(code.data);
+      // Only follow URLs that look like a conquest capture link
+      // — ignore any random QR codes that happen to be in view.
+      if (url.pathname.match(/^\/capture\/\d+\/[a-f0-9]+$/)) {
+        closeQrScanner();
+        window.location.href = code.data;
+        return;
+      }
+    } catch { /* code.data wasn't a valid URL — keep scanning */ }
+  }
+
+  qrFrame = requestAnimationFrame(scanQrFrame);
+}
+
 // ── Map pinch-to-zoom & pan ──────────────────
 //
 // This IIFE adds touch gesture support to the map viewport on mobile.

@@ -1163,6 +1163,95 @@ a:hover { text-decoration: underline; }
   transform: translateX(-50%) scale(0.97);
 }
 
+/* ── QR Scanner modal ───────────────────────── */
+
+/* Full-screen overlay containing the camera feed and UI */
+.qr-scanner-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-scanner-modal.hidden { display: none; }
+
+/* Video fills the whole screen, cropped to cover like a viewfinder */
+#qr-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* UI layer sits above the video */
+.qr-ui {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+/* The square viewfinder box.
+   The giant box-shadow darkens everything outside it so the user
+   knows exactly where to point the camera. */
+.qr-viewfinder {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  border-radius: 4px;
+}
+
+/* Animated line that sweeps top→bottom to indicate active scanning */
+.qr-scan-line {
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: qr-sweep 2s linear infinite;
+}
+
+@keyframes qr-sweep {
+  0%   { top: 0; }
+  50%  { top: calc(100% - 2px); }
+  100% { top: 0; }
+}
+
+/* Corner bracket decorations on the viewfinder */
+.qr-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: #fff;
+  border-style: solid;
+}
+
+.qr-tl { top: 0;    left: 0;    border-width: 3px 0 0 3px; }
+.qr-tr { top: 0;    right: 0;   border-width: 3px 3px 0 0; }
+.qr-bl { bottom: 0; left: 0;    border-width: 0 0 3px 3px; }
+.qr-br { bottom: 0; right: 0;   border-width: 0 3px 3px 0; }
+
+.qr-hint {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+  text-align: center;
+  margin: 0;
+}
+
+.qr-close-btn {
+  font-size: 0.95rem;
+  padding: 10px 28px;
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+
 /* ── Notification toast ─────────────────────── */
 
 .toast-container {
