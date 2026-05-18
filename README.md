@@ -19,7 +19,7 @@ A real-world capture-point game played outdoors. Teams race to scan QR codes at 
 
 ### What You Need
 
-- A Linux VPS (DigitalOcean, Linode, Hetzner, AWS EC2, etc.) — a $6/month droplet is plenty
+- A Linux VPS
 - A domain name pointed at the server's IP address
 - SSH access to the server
 
