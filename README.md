@@ -93,7 +93,7 @@ nano Caddyfile
 docker compose up -d --build
 ```
 
-Caddy will automatically obtain a free TLS certificate from Let's Encrypt. The site should be live at `https://yourdomain.com` within a minute or two.
+Caddy will automatically obtain a free TLS certificate from Let's Encrypt. The site should be live at `https://yourdomain.com`
 
 **5. Check that it's running**
 ```bash
