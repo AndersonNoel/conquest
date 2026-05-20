@@ -94,6 +94,8 @@ app.use(session({
 // fetch()-ing and can't follow a redirect.
 // We also save the original URL so after login we can bounce them back to where
 // they were trying to go (e.g. a QR-code capture link).
+// Note: the `authorized` field on users controls map access only — unauthorized
+// users still reach the dashboard and can use chat, SOS, and the player roster.
 const requireAuth = (req, res, next) => {
   if (!req.session.userId) {
     if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not authenticated' });
@@ -121,11 +123,26 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// /register shares the same HTML page as /login (registration is a tab there)
-app.get('/register', (req, res) => res.redirect('/login'));
+// /register has its own dedicated page
+app.get('/register', (req, res) => {
+  if (req.session.userId) return res.redirect('/dashboard');
+  res.sendFile(path.join(__dirname, 'public', 'register.html'));
+});
 
 app.get('/dashboard', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Serve the guest team-selection capture page (no auth needed — anyone who
+// scans a QR code and isn't logged in lands here to pick a team).
+// Logged-in users are sent back through the authenticated capture route instead.
+app.get('/capture-guest/:locationId/:token', (req, res) => {
+  if (req.session.userId) {
+    return res.redirect(`/capture/${req.params.locationId}/${req.params.token}`);
+  }
+  const location = store.getLocationByToken(parseInt(req.params.locationId), req.params.token);
+  if (!location) return res.status(404).send('<h1>Invalid QR code</h1>');
+  res.sendFile(path.join(__dirname, 'public', 'capture.html'));
 });
 
 // Admin panel has its own password — it's not tied to any player account.
@@ -137,16 +154,14 @@ app.get('/admin', (req, res) => {
 // QR code capture route — a player scans a QR code at a physical location,
 // their phone opens this URL, the server performs the capture, then redirects
 // back to the dashboard with a success/failure query string.
+// Guests (not logged in) are redirected to the team-selection page instead.
 app.get('/capture/:locationId/:token', (req, res) => {
   const { locationId, token } = req.params;
   const location = store.getLocationByToken(parseInt(locationId), token);
   if (!location) return res.status(404).send('<h1>Invalid QR code</h1>');
 
-  // If the player isn't logged in yet, save the capture URL and send them
-  // to /login first.  After login, requireAuth will redirect back here.
   if (!req.session.userId) {
-    req.session.returnTo = req.originalUrl;
-    return res.redirect('/login');
+    return res.redirect(`/capture-guest/${locationId}/${token}`);
   }
 
   const result = gameEngine.captureLocation(location.id, req.session.userId);
@@ -183,11 +198,17 @@ app.post('/api/register', async (req, res) => {
 
   // bcrypt cost factor 10 is the recommended default — expensive enough to slow
   // brute-force attacks but fast enough that a single login doesn't feel slow.
-  const user = store.insertUser({ username: raw, password_hash: await bcrypt.hash(password, 10) });
+  // New accounts always start as unauthorized for map access — an admin must
+  // approve them in the Players tab before they can see the map.
+  const user = store.insertUser({
+    username: raw,
+    password_hash: await bcrypt.hash(password, 10),
+    authorized: false
+  });
   req.session.userId   = user.id;
   req.session.username = user.username;
 
-  // Honour the returnTo URL saved before the redirect to /login
+  // Honour the returnTo URL saved before the redirect to /login.
   const returnTo = req.session.returnTo || '/dashboard';
   delete req.session.returnTo;
   res.json({ success: true, redirect: returnTo });
@@ -237,6 +258,18 @@ app.get('/api/game-state', (req, res) => {
   res.json(gameEngine.getFullGameState());
 });
 
+// Returns all players on the same team as the logged-in player.
+// Used by the Roster tab in the dashboard chat panel.
+app.get('/api/player/teammates', requireAuth, (req, res) => {
+  const user = store.getUser(req.session.userId);
+  if (!user || !user.team_id) return res.json([]);
+  const teammates = store.getUsers()
+    .filter(u => u.team_id === user.team_id)
+    .map(u => ({ id: u.id, username: u.username, role: u.role || null }))
+    .sort((a, b) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
+  res.json(teammates);
+});
+
 // ── Capture API ──────────────────────────────
 
 // GET version returns capture info without actually performing the capture —
@@ -251,8 +284,9 @@ app.get('/api/capture-info/:locationId/:token', (req, res) => {
 
   const { game_state } = store.getSettings();
   const user = req.session.userId ? store.getUserWithTeam(req.session.userId) : null;
+  const teams = store.getTeams().sort((a, b) => a.id - b.id);
 
-  res.json({ location, gameState: game_state, user });
+  res.json({ location, gameState: game_state, user, teams });
 });
 
 // POST version actually performs the capture (called from the dashboard's
@@ -262,6 +296,19 @@ app.post('/api/capture/:locationId/:token', requireAuth, (req, res) => {
   if (!loc) return res.status(404).json({ error: 'Invalid capture code' });
 
   const result = gameEngine.captureLocation(loc.id, req.session.userId);
+  res.status(result.success ? 200 : 400).json(result);
+});
+
+// Guest capture — no account required.  The team is chosen by the user on
+// the /capture-guest page; we perform the capture directly for that team.
+app.post('/api/capture-guest/:locationId/:token', (req, res) => {
+  const loc = store.getLocationByToken(parseInt(req.params.locationId), req.params.token);
+  if (!loc) return res.status(404).json({ error: 'Invalid capture code' });
+
+  const teamId = parseInt(req.body.teamId);
+  if (!teamId) return res.status(400).json({ error: 'Team required' });
+
+  const result = gameEngine.captureLocationForTeam(loc.id, teamId);
   res.status(result.success ? 200 : 400).json(result);
 });
 
@@ -318,7 +365,8 @@ app.get('/api/admin/settings', requireAdmin, (req, res) => {
     total_resets: s.total_resets,
     max_point_value: s.max_point_value,
     game_state: s.game_state,
-    map_image: s.map_image
+    map_image: s.map_image,
+    qr_mode: s.qr_mode || 'url'
   };
   const teams = store.getTeams().sort((a, b) => a.id - b.id);
   res.json({ settings, teams });
@@ -335,7 +383,8 @@ app.post('/api/admin/settings', requireAdmin, (req, res) => {
   if (isNaN(resets)   || resets < 1   || resets > 99)    return res.status(400).json({ error: 'Total resets must be 1–99' });
   if (isNaN(maxPts)   || maxPts < 1   || maxPts > 100)   return res.status(400).json({ error: 'Max points must be 1–100' });
 
-  store.updateSettings({ num_teams: numTeams, reset_interval_minutes: interval, total_resets: resets, max_point_value: maxPts });
+  const qrMode = req.body.qr_mode === 'custom' ? 'custom' : 'url';
+  store.updateSettings({ num_teams: numTeams, reset_interval_minutes: interval, total_resets: resets, max_point_value: maxPts, qr_mode: qrMode });
 
   // Default team names and colours follow the NATO phonetic alphabet.
   // We only create teams that don't exist yet; teams beyond numTeams are deleted.
@@ -439,15 +488,35 @@ app.get('/api/admin/qr/:locationId', requireAdmin, async (req, res) => {
   const location = store.getLocation(parseInt(req.params.locationId));
   if (!location) return res.status(404).json({ error: 'Not found' });
 
-  const url = `${req.protocol}://${req.get('host')}/capture/${location.id}/${location.capture_token}`;
-  // Error correction level H means the QR code can recover even if up to 30%
-  // is obscured — useful for stickers that get worn or partially covered.
-  const qr  = await QRCode.toBuffer(url, { errorCorrectionLevel: 'H', width: 400, margin: 2 });
+  const { qr_mode } = store.getSettings();
+  const content = qr_mode === 'custom'
+    ? `CONQUEST:${location.id}:${location.capture_token}`
+    : `${req.protocol}://${req.get('host')}/capture/${location.id}/${location.capture_token}`;
 
-  res.setHeader('Content-Type', 'image/png');
-  // Suggest a sensible filename so the browser "Save As" dialogue is pre-filled.
-  res.setHeader('Content-Disposition', `attachment; filename="${location.name.replace(/[^a-z0-9]/gi, '_')}-qr.png"`);
-  res.send(qr);
+  // Generate the QR code as SVG paths (fully vector — sharp at any zoom/print size).
+  const qrSvgRaw = await QRCode.toString(content, { type: 'svg', errorCorrectionLevel: 'H', margin: 2 });
+
+  // Extract the viewBox and inner elements from the generated SVG so we can
+  // nest them inside our labelled wrapper SVG.
+  const viewBox  = (qrSvgRaw.match(/viewBox="([^"]+)"/) || [])[1] || '0 0 41 41';
+  const qrInner  = (qrSvgRaw.match(/<svg[^>]*>([\s\S]*?)<\/svg>/) || [])[1] || '';
+
+  const modeLabel = qr_mode === 'custom' ? 'Private (app-only)' : 'Public URL';
+  const safeName  = location.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="480" viewBox="0 0 400 480">
+  <rect width="400" height="480" fill="white"/>
+  <svg x="20" y="20" width="360" height="360" viewBox="${viewBox}">${qrInner}</svg>
+  <text x="200" y="415" text-anchor="middle"
+        font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="bold" fill="#111">${safeName}</text>
+  <text x="200" y="450" text-anchor="middle"
+        font-family="Arial,Helvetica,sans-serif" font-size="15" fill="#555">${modeLabel}</text>
+</svg>`;
+
+  res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${location.name.replace(/[^a-z0-9]/gi, '_')}-qr.svg"`);
+  res.send(svg);
 });
 
 // ── Admin Players API ────────────────────────
@@ -460,6 +529,29 @@ app.get('/api/admin/players', requireAdmin, (req, res) => {
 app.post('/api/admin/assign-team', requireAdmin, (req, res) => {
   const { userId, teamId } = req.body;
   store.updateUser(parseInt(userId), { team_id: teamId ? parseInt(teamId) : null });
+  res.json({ success: true });
+});
+
+// Approve a player for map access.
+app.post('/api/admin/authorize-user/:id', requireAdmin, (req, res) => {
+  const user = store.updateUser(parseInt(req.params.id), { authorized: true });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ success: true });
+});
+
+// Revoke a player's map access.
+app.post('/api/admin/unauthorize-user/:id', requireAdmin, (req, res) => {
+  const user = store.updateUser(parseInt(req.params.id), { authorized: false });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ success: true });
+});
+
+// Set a player's role label (free-text, e.g. "Captain", "Scout").
+// An empty string clears the role.
+app.post('/api/admin/players/:id/role', requireAdmin, (req, res) => {
+  const role = (req.body.role || '').trim().substring(0, 30) || null;
+  const user = store.updateUser(parseInt(req.params.id), { role });
+  if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ success: true });
 });
 

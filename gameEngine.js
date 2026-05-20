@@ -343,10 +343,61 @@ module.exports = {
     };
   },
 
+  // Capture a location on behalf of a team directly (no user account needed).
+  // Used by the guest capture flow where non-logged-in users pick a team.
+  captureLocationForTeam(locationId, teamId) {
+    const team = store.getTeam(teamId);
+    if (!team) return { success: false, error: 'Team not found' };
+
+    const settings = store.getSettings();
+    if (settings.game_state !== 'running') return { success: false, error: 'Game is not currently running' };
+
+    const location = store.getLocation(locationId);
+    if (!location) return { success: false, error: 'Location not found' };
+
+    if (location.controlling_team_id === teamId) {
+      return { success: false, error: `${team.name} already controls ${location.name}!` };
+    }
+
+    store.updateLocation(locationId, { controlling_team_id: teamId });
+
+    io.emit('locationCaptured', {
+      locationId,
+      locationName: location.name,
+      teamId,
+      teamName: team.name,
+      teamColor: team.color,
+      capturedBy: 'Guest',
+      previousTeamId: location.controlling_team_id
+    });
+
+    broadcastState();
+
+    return {
+      success: true,
+      message: `${location.name} captured for ${team.name}!`,
+      location: location.name,
+      team: team.name,
+      teamColor: team.color,
+      pointValue: location.current_point_value
+    };
+  },
+
   // Broadcast an SOS alert to every connected client.
   // opts.name is the display name of whoever triggered it (player callsign or "Admin").
   triggerSOS(opts = {}) {
-    io.emit('sosAlert', { timestamp: Date.now(), triggeredBy: opts.name || null });
+    const name = opts.name || 'Unknown';
+    io.emit('sosAlert', { timestamp: Date.now(), triggeredBy: name });
+
+    const msg = store.insertMessage({
+      authorId:   null,
+      authorName: 'System',
+      teamId:     null,
+      teamColor:  null,
+      channel:    'all',
+      text:       `🚨 EMERGENCY SOS — ${name} has called all players to return to base immediately.`
+    });
+    io.emit('chatMessage', msg);
   },
 
   broadcast: broadcastState,

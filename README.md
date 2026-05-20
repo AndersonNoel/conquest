@@ -10,8 +10,24 @@ A real-world capture-point game played outdoors. Teams race to scan QR codes at 
 2. Each location gets a QR code. Print them and attach them to physical objects at each location.
 3. Players join at the website URL, choose a callsign, and are assigned to a team.
 4. The admin starts the game. Players run to locations and scan QR codes to capture them.
+   - **Logged-in players** capture automatically on scan.
+   - **Guests** (no account) are shown a team-selection screen and can capture without registering.
 5. At the end of each round, every team earns the point value shown on each location they hold. Location point values are then re-randomised for the next round.
 6. The team with the most points when all rounds are complete wins.
+
+---
+
+## Features
+
+- **Guest capture** — anyone who scans a QR code can capture a point for their team without needing an account.
+- **Player authorization** — new accounts start with map access denied; the admin approves players in the Players tab before they can see the map. Unauthorized players can still use chat, SOS, and the roster.
+- **Player roles** — admin can assign a label to each player (e.g. "Captain", "Scout") visible in the roster.
+- **Roster tab** — the chat panel includes a Roster tab showing all teammates on your team, with their roles.
+- **QR code modes** — two modes selectable in admin settings:
+  - *Public URL* (default): QR codes encode a `https://…/capture/…` link — any phone camera works.
+  - *App-only (private)*: QR codes encode `CONQUEST:id:token` — requires a custom scanner, prevents casual discovery.
+- **Vector QR codes** — downloaded QR codes are SVG, staying sharp at any zoom or print size, labelled with the location name and mode.
+- **SOS chat alert** — triggering SOS also posts a system message to the all-teams chat so every player sees it in the feed.
 
 ---
 
@@ -155,7 +171,9 @@ The admin panel is at `http://localhost:3000/admin`.
 ├── public/
 │   ├── index.html               # Player dashboard
 │   ├── admin.html               # Admin panel
-│   ├── login.html               # Login / register page
+│   ├── login.html               # Login page
+│   ├── register.html            # Registration page
+│   ├── capture.html             # Guest team-selection page (no login needed)
 │   ├── css/style.css            # All styles
 │   └── js/
 │       ├── dashboard.js         # Player dashboard logic
@@ -171,7 +189,7 @@ The admin panel is at `http://localhost:3000/admin`.
 
 ## Configuration
 
-All game settings (number of teams, round length, point values) are managed through the admin panel at `/admin`. No config files need editing.
+All game settings (number of teams, round length, point values, QR code mode) are managed through the admin panel at `/admin`. No config files need editing.
 
 The only things that need setting before first run:
 
@@ -179,3 +197,16 @@ The only things that need setting before first run:
 |---|---|
 | Session secret | `.env` file (SSH) or Portainer environment variables |
 | Admin password | Set interactively on first visit to `/admin` |
+
+### Player Access
+
+New player accounts start with **map access denied**. Go to **Admin → Players** and click **Denied** next to a player to grant them map access. Players without access can still use chat, SOS, and the roster — they just can't see the map.
+
+### QR Code Mode
+
+Selectable in **Admin → Settings**:
+
+| Mode | QR content | Use when |
+|---|---|---|
+| Public URL (default) | `https://your-domain/capture/…` | Any phone camera should work |
+| App-only (private) | `CONQUEST:id:token` | You want a dedicated scanner app; prevents casual discovery |

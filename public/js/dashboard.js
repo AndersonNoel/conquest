@@ -34,6 +34,7 @@ async function init() {
   // If the session has expired, bounce back to login.
   if (res.status === 401) { window.location.href = '/login'; return; }
   player = await res.json();
+  applyMapAuthorization();
   renderPlayerHeader();
   loadMessages();
 
@@ -46,6 +47,18 @@ async function init() {
   } else if (params.has('capture_error')) {
     toast(params.get('capture_error'), 'danger');
     history.replaceState({}, '', '/dashboard');
+  }
+}
+
+// Show or hide the map based on the player's authorization status.
+// Unauthorized players see the default placeholder but can still use the Capture FAB.
+// renderMap() also checks this flag to prevent the socket state update from
+// overriding the hidden state.
+function applyMapAuthorization() {
+  const locked = player && player.authorized === false;
+  if (locked) {
+    document.getElementById('map-placeholder').style.display = 'none';
+    document.getElementById('map-viewport').style.display   = 'none';
   }
 }
 
@@ -79,7 +92,7 @@ function renderInfoBar(state) {
   const statusMap = {
     waiting:   ['status-waiting',   'Waiting'],
     countdown: ['status-countdown', 'Countdown'],
-    running:   ['status-running',   '&#11044; Live'],
+    running:   ['status-running',   'Live'],
     paused:    ['status-paused',    'Paused'],
     ended:     ['status-ended',     'Game Over']
   };
@@ -138,7 +151,7 @@ function renderScoreChips(teams) {
   const sorted = [...teams].sort((a, b) => b.total_points - a.total_points);
   el.innerHTML = sorted.map((t, i) => {
     const isMe = player && player.team_id === t.id;
-    const rankIcon = i === 0 ? '&#127941; ' : '';    // trophy emoji for first place
+    const rankIcon = '';
     return `
       <div class="team-score-chip ${isMe ? 'my-team' : ''}"
            style="${isMe ? `border-color:${t.color}` : ''}">
@@ -216,6 +229,10 @@ function renderPins(locations) {
 }
 
 function renderMap(state) {
+  // Don't touch the map DOM if the player isn't authorized — the locked message
+  // is already showing and we don't want to reveal anything beneath it.
+  if (player && player.authorized === false) return;
+
   const placeholder = document.getElementById('map-placeholder');
   const img = document.getElementById('map-img');
 
@@ -259,11 +276,9 @@ function showGameOver(state) {
   if (!el || !podium) return;
 
   const sorted = [...(state.teams || [])].sort((a, b) => b.total_points - a.total_points);
-  const rankIcons = ['&#127942;', '&#129352;', '&#129353;'];   // gold, silver, bronze medals
-
   podium.innerHTML = sorted.map((t, i) => `
     <div class="podium-row${i === 0 ? ' first' : ''}">
-      <div class="podium-rank">${rankIcons[i] || (i + 1)}</div>
+      <div class="podium-rank">${i + 1}</div>
       <div class="podium-dot" style="background:${t.color}"></div>
       <div class="podium-name" style="${i === 0 ? `color:${t.color}` : ''}">${t.name}</div>
       <div class="podium-pts">${t.total_points}<span style="font-size:0.7em;font-weight:400;color:var(--text-muted)"> pts</span></div>
@@ -452,29 +467,86 @@ function renderMessages() {
 
 function toggleChat() {
   chatOpen = !chatOpen;
-  document.getElementById('chat-panel').classList.toggle('open', chatOpen);
+  const panel = document.getElementById('chat-panel');
+  panel.classList.toggle('open', chatOpen);
   document.getElementById('chat-backdrop').classList.toggle('visible', chatOpen);
   if (chatOpen) {
-    // Clear unread count for the currently visible channel when the panel opens.
-    unread[activeChannel] = 0;
-    updateUnreadBadges();
-    renderMessages();
-    // Use rAF so the panel slide-in animation has started before we scroll,
-    // otherwise scrollTop has nothing to scroll to yet.
-    requestAnimationFrame(scrollChatToBottom);
-    document.getElementById('chat-input').focus();
+    if (activeChannel === 'roster') {
+      loadRoster();
+    } else {
+      unread[activeChannel] = 0;
+      updateUnreadBadges();
+      renderMessages();
+      requestAnimationFrame(scrollChatToBottom);
+      if (window.matchMedia('(hover: hover)').matches) {
+        document.getElementById('chat-input').focus();
+      }
+    }
+  } else {
+    window.scrollTo(0, 0);
   }
 }
 
 function switchChannel(channel) {
   activeChannel = channel;
-  unread[channel] = 0;
-  updateUnreadBadges();
   document.querySelectorAll('.chat-tab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.channel === channel);
   });
-  renderMessages();
-  requestAnimationFrame(scrollChatToBottom);
+
+  const msgEl    = document.getElementById('chat-messages');
+  const rosterEl = document.getElementById('roster-panel');
+  const formEl   = document.getElementById('chat-form');
+
+  if (channel === 'roster') {
+    msgEl.style.display    = 'none';
+    formEl.style.display   = 'none';
+    rosterEl.style.display = '';
+    loadRoster();
+  } else {
+    rosterEl.style.display = 'none';
+    msgEl.style.display    = '';
+    formEl.style.display   = '';
+    unread[channel] = 0;
+    updateUnreadBadges();
+    renderMessages();
+    requestAnimationFrame(scrollChatToBottom);
+    if (window.matchMedia('(hover: hover)').matches) {
+      document.getElementById('chat-input').focus();
+    }
+  }
+}
+
+// Fetch and render the list of teammates for the player's team.
+async function loadRoster() {
+  const el = document.getElementById('roster-panel');
+  if (!el) return;
+  el.innerHTML = '<div class="chat-empty">Loading…</div>';
+
+  try {
+    const res = await fetch('/api/player/teammates');
+    if (!res.ok) { el.innerHTML = '<div class="chat-empty">Could not load roster.</div>'; return; }
+    const teammates = await res.json();
+
+    if (teammates.length === 0) {
+      el.innerHTML = '<div class="chat-empty">You are not assigned to a team yet.</div>';
+      return;
+    }
+
+    const teamColor = player && player.team_color ? player.team_color : 'var(--uncontrolled)';
+    el.innerHTML = teammates.map(t => {
+      const isMe = t.id === player.id;
+      return `
+        <div class="score-row" style="padding:10px 16px">
+          <div class="score-dot" style="background:${teamColor}"></div>
+          <div class="score-name">
+            ${escapeHtml(t.username)}${isMe ? ' <span style="color:var(--text-muted);font-size:0.78rem">(you)</span>' : ''}
+          </div>
+          ${t.role ? `<div style="font-size:0.8rem;color:var(--text-muted);font-style:italic">${escapeHtml(t.role)}</div>` : ''}
+        </div>`;
+    }).join('');
+  } catch {
+    el.innerHTML = '<div class="chat-empty">Could not load roster.</div>';
+  }
 }
 
 // Fetch chat history from the server on page load.
@@ -614,16 +686,22 @@ function scanQrFrame() {
   });
 
   if (code) {
+    // App-only format: CONQUEST:<locationId>:<token>
+    const custom = code.data.match(/^CONQUEST:(\d+):([a-f0-9]+)$/);
+    if (custom) {
+      closeQrScanner();
+      window.location.href = `/capture/${custom[1]}/${custom[2]}`;
+      return;
+    }
+    // Public URL format — any camera app can also read these
     try {
       const url = new URL(code.data);
-      // Only follow URLs that look like a conquest capture link
-      // — ignore any random QR codes that happen to be in view.
       if (url.pathname.match(/^\/capture\/\d+\/[a-f0-9]+$/)) {
         closeQrScanner();
         window.location.href = code.data;
         return;
       }
-    } catch { /* code.data wasn't a valid URL — keep scanning */ }
+    } catch { /* not a valid URL — keep scanning */ }
   }
 
   qrFrame = requestAnimationFrame(scanQrFrame);
@@ -750,5 +828,14 @@ function scanQrFrame() {
     }
   }, { passive: false });
 })();
+
+// The dashboard page itself should never scroll — only the chat message list.
+// Intercept touchmove at the document level and block it everywhere except
+// the scrollable message/roster containers.
+document.addEventListener('touchmove', e => {
+  if (!e.target.closest('#chat-messages') && !e.target.closest('#roster-panel')) {
+    e.preventDefault();
+  }
+}, { passive: false });
 
 init();

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Location</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .capture-team-btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      border: 2px solid transparent;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      text-align: center;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .capture-team-btn:hover   { opacity: 0.9; }
+    .capture-team-btn:active  { opacity: 0.8; transform: scale(0.98); }
+    .capture-team-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    .capture-result {
+      text-align: center;
+      padding: 24px 0;
+    }
+    .capture-result-icon { font-size: 3rem; margin-bottom: 12px; }
+    .capture-result-msg  { font-size: 1.2rem; font-weight: 700; margin-bottom: 8px; }
+    .capture-result-sub  { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px; }
+  </style>
+</head>
+<body class="auth-page">
+
+  <div class="auth-box" id="main-card">
+    <div class="auth-title">&#9876; Capture</div>
+    <div id="content">
+      <p style="color:var(--text-muted); font-size:0.9rem; text-align:center">Loading…</p>
+    </div>
+  </div>
+
+  <script>
+    // Extract locationId and token from the URL: /capture-guest/:id/:token
+    const parts = window.location.pathname.split('/');
+    const locationId = parts[2];
+    const token      = parts[3];
+
+    async function init() {
+      document.getElementById('content').innerHTML =
+        '<p style="color:var(--text-muted); font-size:0.9rem; text-align:center">Loading…</p>';
+
+      try {
+        const res = await fetch(`/api/capture-info/${locationId}/${token}`);
+        if (!res.ok) { showError('Invalid or expired QR code.'); return; }
+        const { location, gameState, teams } = await res.json();
+        renderCapturePage(location, gameState, teams || []);
+      } catch {
+        showError('Could not connect to the server. Check your connection and try again.');
+      }
+    }
+
+    function renderCapturePage(location, gameState, teams) {
+      const content = document.getElementById('content');
+
+      if (gameState !== 'running') {
+        const stateLabels = {
+          waiting:   'The game hasn\'t started yet.',
+          countdown: 'The game is about to start — try again in a moment!',
+          paused:    'The game is currently paused.',
+          ended:     'This game has ended.'
+        };
+        content.innerHTML = `
+          <div style="text-align:center; padding:16px 0">
+            <div style="font-size:1.1rem; font-weight:700; margin-bottom:8px">${escHtml(location.name)}</div>
+            <p style="color:var(--text-muted); margin-bottom:20px">${stateLabels[gameState] || 'Game is not currently running.'}</p>
+            <button class="btn btn-ghost" onclick="init()">Check Again</button>
+          </div>`;
+        return;
+      }
+
+      if (teams.length === 0) {
+        content.innerHTML = `
+          <div style="text-align:center; padding:16px 0">
+            <p style="color:var(--text-muted)">No teams are configured yet.</p>
+          </div>`;
+        return;
+      }
+
+      const currentTeamHtml = location.controlling_team_id
+        ? `<p style="margin-bottom:8px; font-size:0.9rem; color:var(--text-muted)">
+             Currently held by <strong style="color:${location.team_color}">${escHtml(location.team_name)}</strong>
+           </p>`
+        : `<p style="margin-bottom:8px; font-size:0.9rem; color:var(--text-muted)">Unclaimed — capture it now!</p>`;
+
+      const teamButtons = teams.map(t => `
+        <button class="capture-team-btn" style="background:${t.color}"
+                data-team-id="${t.id}">${escHtml(t.name)}</button>
+      `).join('');
+
+      content.innerHTML = `
+        <div style="text-align:center; margin-bottom:20px">
+<div style="font-size:1.3rem; font-weight:700; margin-bottom:4px">${escHtml(location.name)}</div>
+          ${currentTeamHtml}
+        </div>
+        <div style="font-size:0.9rem; color:var(--text-muted); margin-bottom:14px; text-align:center">
+          Capture for your team:
+        </div>
+        <div id="team-buttons">${teamButtons}</div>
+        <div id="capture-alert" style="margin-top:12px"></div>
+        <hr style="border-color:var(--border); margin:20px 0">
+        <p style="text-align:center; font-size:0.82rem; color:var(--text-muted)">
+          <a href="/login" style="color:var(--primary)">Log in</a>
+        </p>`;
+
+      // Attach click handlers after inserting HTML (avoids inline onclick in innerHTML)
+      document.querySelectorAll('#team-buttons .capture-team-btn').forEach(btn => {
+        btn.addEventListener('click', () => captureFor(parseInt(btn.dataset.teamId)));
+      });
+    }
+
+    async function captureFor(teamId) {
+      // Disable all buttons to prevent double-capture while the request is in flight.
+      const allBtns = () => document.querySelectorAll('.capture-team-btn');
+      allBtns().forEach(b => b.disabled = true);
+
+      try {
+        const res = await fetch(`/api/capture-guest/${locationId}/${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamId })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          const pts = data.pointValue ?? '?';
+          document.getElementById('content').innerHTML = `
+            <div class="capture-result">
+              <div class="capture-result-msg">${escHtml(data.message)}</div>
+              <div class="capture-result-sub">${pts} pt${pts !== 1 ? 's' : ''} up for grabs this round</div>
+              <a class="btn btn-ghost" href="/login">Log in for full access</a>
+            </div>`;
+        } else {
+          allBtns().forEach(b => b.disabled = false);
+          const alertEl = document.getElementById('capture-alert');
+          if (alertEl) alertEl.innerHTML = `<div class="alert alert-error">${escHtml(data.error)}</div>`;
+        }
+      } catch {
+        allBtns().forEach(b => b.disabled = false);
+        const alertEl = document.getElementById('capture-alert');
+        if (alertEl) alertEl.innerHTML = '<div class="alert alert-error">Connection error — please try again.</div>';
+      }
+    }
+
+    function showError(msg) {
+      document.getElementById('content').innerHTML =
+        `<div class="alert alert-error">${msg}</div>`;
+    }
+
+    function escHtml(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    init();
+  </script>
+</body>
+</html>

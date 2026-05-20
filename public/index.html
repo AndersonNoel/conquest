@@ -11,7 +11,7 @@
   <!-- Game Over Overlay -->
   <div class="game-over-overlay hidden" id="game-over-overlay">
     <div class="game-over-content">
-      <div class="game-over-title">&#127942; GAME OVER &#127942;</div>
+      <div class="game-over-title">GAME OVER</div>
       <div class="game-over-subtitle">Final Standings</div>
       <div class="podium-list" id="game-over-podium"></div>
       <button class="btn btn-ghost btn-lg" onclick="dismissGameOver()">Back to Map</button>
@@ -68,7 +68,7 @@
       <span style="font-size:3rem">&#128506;</span>
       <span>Map not yet configured</span>
     </div>
-    <div id="map-viewport">
+<div id="map-viewport">
       <img id="map-img" class="map-bg-img" alt="Game map" style="display:none"
            onload="onMapImageLoad()">
       <div class="map-overlay" id="map-overlay"></div>
@@ -90,10 +90,14 @@
           All Players
           <span class="chat-tab-badge hidden" id="chat-tab-badge-all"></span>
         </button>
+        <button class="chat-tab-btn" data-channel="roster">
+          &#128100; Roster
+        </button>
       </div>
       <button class="chat-close-btn" onclick="toggleChat()">&#10005;</button>
     </div>
     <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-messages" id="roster-panel" style="display:none"></div>
     <form class="chat-input-row" id="chat-form">
       <input class="chat-input" id="chat-input" placeholder="Type a message…"
              maxlength="300" autocomplete="off">
@@ -103,7 +107,7 @@
 
   <!-- Capture FAB -->
   <button class="capture-fab" onclick="openQrScanner()">
-    &#128247; <span>Capture</span>
+    <span>Capture</span>
   </button>
 
   <!-- QR Scanner — shown full-screen when the Capture button is tapped -->

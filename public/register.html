@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Log In — Capture</title>
+  <title>Sign Up — Capture</title>
   <link rel="stylesheet" href="/css/style.css">
   <style>
     .join-page {
@@ -38,6 +38,12 @@
       color: var(--accent);
       text-transform: uppercase;
       letter-spacing: 0.12em;
+    }
+
+    .join-logo-subtitle {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 4px;
     }
 
     .join-name-input {
@@ -102,23 +108,6 @@
     }
 
     .join-footer a:hover { text-decoration: underline; }
-
-    .admin-link-wrap {
-      margin-top: 32px;
-      text-align: center;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-    }
-
-    .admin-link {
-      color: var(--text-dim);
-      font-size: 0.82rem;
-      text-decoration: none;
-      letter-spacing: 0.04em;
-      transition: color 0.15s;
-    }
-
-    .admin-link:hover { color: var(--text-muted); }
   </style>
 </head>
 <body class="join-page">
@@ -127,51 +116,58 @@
     <div class="join-logo">
       <span class="join-logo-icon">&#9876;</span>
       <div class="join-logo-title">Capture</div>
+      <div class="join-logo-subtitle">Create your account</div>
     </div>
 
     <div id="alert-box"></div>
 
-    <form id="login-form">
+    <form id="register-form">
       <input class="join-name-input" type="text" id="username"
-             placeholder="Callsign..." autocomplete="username"
+             placeholder="Choose a callsign..." autocomplete="username"
              maxlength="30" autocorrect="off" autocapitalize="words" required>
       <input class="join-name-input" type="password" id="password"
-             placeholder="Password..." autocomplete="current-password"
+             placeholder="Password (min 4 chars)..." autocomplete="new-password"
              maxlength="100" required>
-      <button type="submit" class="join-btn" id="login-btn">Log In</button>
+      <input class="join-name-input" type="password" id="confirm"
+             placeholder="Confirm password..." autocomplete="new-password"
+             maxlength="100" required>
+      <button type="submit" class="join-btn" id="register-btn">Create Account</button>
     </form>
 
     <div class="join-footer">
-      <a href="/register">Sign up &rsaquo;</a>
-    </div>
-
-    <div class="admin-link-wrap">
-      <a class="admin-link" href="/admin">Admin panel &rsaquo;</a>
+      <a href="/login">Log in &rsaquo;</a>
     </div>
 
   </div>
 
   <script>
-    const alertBox = document.getElementById('alert-box');
-    const loginBtn = document.getElementById('login-btn');
+    const alertBox   = document.getElementById('alert-box');
+    const registerBtn = document.getElementById('register-btn');
 
     if (window.innerWidth > 600) document.getElementById('username').focus();
 
-    document.getElementById('login-form').addEventListener('submit', async e => {
+    document.getElementById('register-form').addEventListener('submit', async e => {
       e.preventDefault();
       alertBox.innerHTML = '';
 
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
-      if (!username || !password) return;
+      const confirm  = document.getElementById('confirm').value;
 
-      loginBtn.disabled    = true;
-      loginBtn.textContent = 'Logging in...';
+      if (!username || !password || !confirm) return;
 
-      const res  = await fetch('/api/login', {
+      if (password !== confirm) {
+        alertBox.innerHTML = '<div class="alert alert-error">Passwords do not match.</div>';
+        return;
+      }
+
+      registerBtn.disabled    = true;
+      registerBtn.textContent = 'Creating...';
+
+      const res  = await fetch('/api/register', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ username, password })
+        body:    JSON.stringify({ username, password, confirm })
       });
       const data = await res.json();
 
@@ -180,17 +176,9 @@
         return;
       }
 
-      loginBtn.disabled    = false;
-      loginBtn.textContent = 'Log In';
-
-      // On 404, hint that the callsign doesn't exist and they should sign up.
-      if (res.status === 404) {
-        alertBox.innerHTML = `<div class="alert alert-error">
-          Callsign not found. <a href="/register" style="color:inherit;font-weight:700">Sign up</a> to create an account.
-        </div>`;
-      } else {
-        alertBox.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
-      }
+      registerBtn.disabled    = false;
+      registerBtn.textContent = 'Create Account';
+      alertBox.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
     });
   </script>
 </body>

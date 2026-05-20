@@ -19,7 +19,7 @@
   <!-- SOS confirm modal -->
   <div class="modal-overlay hidden" id="sos-modal">
     <div class="modal-box" style="border-color:var(--danger)">
-      <div class="modal-title" style="color:var(--danger)">&#9888; Emergency SOS</div>
+      <div class="modal-title" style="color:var(--danger)">Emergency SOS</div>
       <p style="color:var(--text-muted); margin-bottom:12px;">
         This will send an emergency alert to ALL connected players telling them to return to base immediately.
       </p>
@@ -140,6 +140,14 @@
               <input class="form-input" type="number" name="max_point_value" min="1" max="100" value="10">
               <div class="form-hint">Points assigned randomly (1 to this value)</div>
             </div>
+            <div class="form-group">
+              <label class="form-label">QR Code Format</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="qr-mode-custom">
+                <span>App-only QR codes</span>
+              </label>
+              <div class="form-hint">When on, QR codes use a private format only the in-app scanner can read. When off, QR codes are standard URLs any camera app can open.</div>
+            </div>
             <button type="submit" class="btn btn-primary">Save Settings</button>
           </form>
         </div>
@@ -202,8 +210,8 @@
         <div class="section-header">
           <div class="card-title" style="margin-bottom:0">Players</div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm" id="random-teams-btn">&#127922; Randomize Teams</button>
-            <button class="btn btn-ghost btn-sm" id="clear-players-btn" style="color:var(--danger); border-color:rgba(192,64,64,0.4)">&#128465; Clear All</button>
+            <button class="btn btn-ghost btn-sm" id="random-teams-btn">Randomize Teams</button>
+            <button class="btn btn-ghost btn-sm" id="clear-players-btn" style="color:var(--danger); border-color:rgba(192,64,64,0.4)">Clear All</button>
           </div>
         </div>
         <div id="players-alert"></div>
@@ -244,12 +252,12 @@
           <button class="btn btn-primary big-game-btn" id="start-btn">&#9654; Start Game</button>
           <button class="btn btn-warning big-game-btn" id="pause-btn" disabled>&#9646;&#9646; Pause</button>
           <button class="btn btn-ghost big-game-btn" id="end-btn" disabled>&#9632; End Game</button>
-          <button class="btn btn-ghost big-game-btn" id="reset-btn">&#8635; Reset Game</button>
+          <button class="btn btn-ghost big-game-btn" id="reset-btn">Reset Game</button>
         </div>
       </div>
 
       <div class="card" style="border-color:rgba(192,64,64,0.3)">
-        <div class="card-title" style="color:var(--danger)">&#9888; Emergency</div>
+        <div class="card-title" style="color:var(--danger)">Emergency</div>
         <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:16px">
           The SOS button alerts all players to return to base immediately.
           Requires confirmation before sending.

@@ -119,6 +119,7 @@ async function loadSettings() {
   form.reset_interval_minutes.value = settings.reset_interval_minutes;
   form.total_resets.value = settings.total_resets;
   form.max_point_value.value = settings.max_point_value;
+  document.getElementById('qr-mode-custom').checked = (settings.qr_mode === 'custom');
 
   renderTeamsConfig(teams);
 }
@@ -133,7 +134,8 @@ document.getElementById('settings-form').addEventListener('submit', async e => {
       num_teams: f.num_teams.value,
       reset_interval_minutes: f.reset_interval_minutes.value,
       total_resets: f.total_resets.value,
-      max_point_value: f.max_point_value.value
+      max_point_value: f.max_point_value.value,
+      qr_mode: document.getElementById('qr-mode-custom').checked ? 'custom' : 'url'
     })
   });
   const data = await res.json();
@@ -635,16 +637,30 @@ async function loadPlayers() {
       <thead>
         <tr>
           <th>Player</th>
+          <th>Map Access</th>
+          <th>Role</th>
           <th>Team</th>
           <th></th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        ${players.map(p => `
+        ${players.map(p => {
+          const hasAccess = p.authorized !== false;
+          return `
           <tr>
+            <td><div style="font-weight:600">${p.username}</div></td>
             <td>
-              <div style="font-weight:600">${p.username}</div>
+              ${hasAccess
+                ? `<button class="btn btn-primary btn-sm" onclick="unauthorizeUser(${p.id})">Authorized</button>`
+                : `<button class="btn btn-ghost btn-sm" style="color:var(--danger);border-color:rgba(192,64,64,0.4)"
+                           onclick="authorizeUser(${p.id})">Denied</button>`}
+            </td>
+            <td>
+              <input class="form-input" type="text" placeholder="e.g. Captain"
+                     maxlength="30" value="${(p.role || '').replace(/"/g, '&quot;')}"
+                     style="width:110px; font-size:0.85rem; padding:6px 8px"
+                     onchange="setPlayerRole(${p.id}, this.value)">
             </td>
             <td>
               ${p.team_id
@@ -652,21 +668,45 @@ async function loadPlayers() {
                 : `<span class="text-muted">Unassigned</span>`}
             </td>
             <td>
-              <!-- Team assignment dropdown — calls assignTeam() on change -->
               <select class="form-select" style="width:auto; font-size:0.85rem"
-                      onchange="assignTeam(${p.id}, this.value)" data-player-id="${p.id}">
+                      onchange="assignTeam(${p.id}, this.value)">
                 ${teams.map(t => `<option value="${t.id}" ${p.team_id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
                 <option value="" ${!p.team_id ? 'selected' : ''}>Unassigned</option>
               </select>
             </td>
             <td>
               <button class="btn btn-ghost btn-sm" style="color:var(--danger)"
-                      onclick="deletePlayer(${p.id}, '${p.username.replace(/'/g, "\\'")}')">&#128465;</button>
+                      onclick="deletePlayer(${p.id}, '${p.username.replace(/'/g, "\\'")}')">Delete</button>
             </td>
           </tr>
-        `).join('')}
+        `}).join('')}
       </tbody>
     </table>`;
+}
+
+// Grant a player map access.
+async function authorizeUser(userId) {
+  const res = await fetch(`/api/admin/authorize-user/${userId}`, { method: 'POST' });
+  if (res.ok) { toast('Map access granted!', 'success'); loadPlayers(); }
+  else toast('Failed to authorize player', 'danger');
+}
+
+// Revoke a player's map access.
+async function unauthorizeUser(userId) {
+  const res = await fetch(`/api/admin/unauthorize-user/${userId}`, { method: 'POST' });
+  if (res.ok) { toast('Map access revoked', 'warning'); loadPlayers(); }
+  else toast('Failed to revoke access', 'danger');
+}
+
+// Update a player's role label.
+async function setPlayerRole(userId, value) {
+  const res = await fetch(`/api/admin/players/${userId}/role`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: value })
+  });
+  if (res.ok) toast('Role updated', 'success');
+  else toast('Failed to update role', 'danger');
 }
 
 // Assign (or un-assign) a player to a team immediately when the dropdown changes.

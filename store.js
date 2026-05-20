@@ -58,7 +58,8 @@ const DEFAULT_SETTINGS = {
   paused_remaining_ms: null,   // ms left on the round timer when the game was paused
   game_start_time: null,       // Date.now() when the current game started
   countdown_end_time: null,    // Date.now() target when pre-game countdown expires
-  map_image: null              // filename of the uploaded map (e.g. "map.jpg")
+  map_image: null,             // filename of the uploaded map (e.g. "map.jpg")
+  qr_mode: 'url'               // 'url' = public URL QR | 'custom' = app-only CONQUEST: format
 };
 
 let settings  = load('settings', { ...DEFAULT_SETTINGS });
@@ -67,10 +68,13 @@ let users     = load('users', []);
 let locations = load('locations', []);
 
 // Forward-compatibility: if a settings file from an older version is missing
-// any keys that were added later, fill them in with their defaults.
+// any keys that were added later, fill them in with their defaults and
+// immediately persist so future restarts don't need the loop again.
+let _settingsMigrated = false;
 for (const k of Object.keys(DEFAULT_SETTINGS)) {
-  if (!(k in settings)) settings[k] = DEFAULT_SETTINGS[k];
+  if (!(k in settings)) { settings[k] = DEFAULT_SETTINGS[k]; _settingsMigrated = true; }
 }
+if (_settingsMigrated) save('settings', settings);
 
 // Generate the next integer ID for a new record by taking the current maximum
 // and adding 1.  Using max() rather than array.length means IDs stay unique
