@@ -70,7 +70,8 @@ function getFullGameState() {
     locations,
     timeRemaining,
     countdownRemaining,
-    resetStartTime: settings.reset_start_time
+    resetStartTime: settings.reset_start_time,
+    teamChatEnabled: settings.team_chat_enabled !== false
   };
 }
 
@@ -116,7 +117,7 @@ function processReset() {
   }
 
   // Otherwise: randomise point values for the next round and schedule the next reset.
-  store.randomizeLocationPoints(settings.max_point_value);
+  store.randomizeLocationPoints(settings.num_teams);
   store.updateSettings({ current_reset: newReset, reset_start_time: Date.now() });
 
   broadcastState();
@@ -137,7 +138,7 @@ function startGameNow() {
   const settings = store.getSettings();
   store.resetAllLocationControl();
   // Give every location a fresh random point value for the first round.
-  store.randomizeLocationPoints(settings.max_point_value);
+  store.randomizeLocationPoints(settings.num_teams);
 
   const now = Date.now();
   store.updateSettings({

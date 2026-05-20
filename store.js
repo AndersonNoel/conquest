@@ -59,7 +59,8 @@ const DEFAULT_SETTINGS = {
   game_start_time: null,       // Date.now() when the current game started
   countdown_end_time: null,    // Date.now() target when pre-game countdown expires
   map_image: null,             // filename of the uploaded map (e.g. "map.jpg")
-  qr_mode: 'url'               // 'url' = public URL QR | 'custom' = app-only CONQUEST: format
+  qr_mode: 'url',              // 'url' = public URL QR | 'custom' = app-only CONQUEST: format | 'stable' = name-based CONQUEST:NAME: format
+  team_chat_enabled: true      // false hides the team channel and filters team messages
 };
 
 let settings  = load('settings', { ...DEFAULT_SETTINGS });
@@ -230,6 +231,15 @@ function getLocationByToken(id, token) {
   return locations.find(l => l.id === id && l.capture_token === token) || null;
 }
 
+// Normalize a location name to a URL-safe slug for stable QR codes.
+function toSlug(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function getLocationBySlug(slug) {
+  return locations.find(l => toSlug(l.name) === slug) || null;
+}
+
 function insertLocation(data) {
   // New locations start with no controlling team.
   const loc = { controlling_team_id: null, ...data, id: nextId(locations) };
@@ -260,11 +270,35 @@ function resetAllLocationControl() {
 // Assign each location a new random point value between 1 and maxPts.
 // Called at game start and after each reset so point values vary between rounds,
 // encouraging teams to re-evaluate which locations are worth fighting over.
-function randomizeLocationPoints(maxPts) {
-  locations = locations.map(l => ({
-    ...l,
-    current_point_value: Math.floor(Math.random() * maxPts) + 1
-  }));
+function randomizeLocationPoints(numTeams) {
+  // Pick a random integer between lo and hi inclusive.
+  const rand = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1)) + lo;
+
+  // Shuffle location IDs so tier assignment varies each round.
+  const ids = locations.map(l => l.id).sort(() => Math.random() - 0.5);
+
+  const values = [];
+
+  // Tier 1: exactly 1 location guaranteed 9 or 10.
+  if (ids.length > values.length) values.push(rand(9, 10));
+
+  // Tier 2: max(0, numTeams - 2) locations — 75% chance of 8–10, else 1–4.
+  const tier2Count = Math.max(0, numTeams - 2);
+  for (let i = 0; i < tier2Count && ids.length > values.length; i++) {
+    values.push(Math.random() < 0.75 ? rand(8, 10) : rand(1, 4));
+  }
+
+  // Tier 3: 1 location — 25% chance of 5 or 6, else 1–4.
+  if (ids.length > values.length) {
+    values.push(Math.random() < 0.25 ? rand(5, 6) : rand(1, 4));
+  }
+
+  // Tier 4: all remaining locations at 1–4.
+  while (values.length < ids.length) values.push(rand(1, 4));
+
+  // Map values back to locations by shuffled ID order.
+  const valueMap = Object.fromEntries(ids.map((id, i) => [id, values[i]]));
+  locations = locations.map(l => ({ ...l, current_point_value: valueMap[l.id] }));
   save('locations', locations);
 }
 
@@ -282,6 +316,7 @@ module.exports = {
   getTeams, getTeam, insertTeam, updateTeam, deleteTeam, resetTeamPoints, addTeamPoints,
   getUsers, getUser, getUserByUsername, insertUser, updateUser, deleteUser, clearUsers, getUserWithTeam, getUsersWithTeam,
   getMessages, insertMessage, clearMessages,
-  getLocations, getLocation, getLocationByToken, insertLocation, updateLocation, deleteLocation,
+  getLocations, getLocation, getLocationByToken, getLocationBySlug, toSlug,
+  insertLocation, updateLocation, deleteLocation,
   resetAllLocationControl, randomizeLocationPoints, getLocationsWithTeam
 };

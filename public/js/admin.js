@@ -119,7 +119,10 @@ async function loadSettings() {
   form.reset_interval_minutes.value = settings.reset_interval_minutes;
   form.total_resets.value = settings.total_resets;
   form.max_point_value.value = settings.max_point_value;
-  document.getElementById('qr-mode-custom').checked = (settings.qr_mode === 'custom');
+  const qrMode = settings.qr_mode || 'url';
+  const radio = document.querySelector(`input[name="qr_mode"][value="${qrMode}"]`);
+  if (radio) radio.checked = true;
+  document.getElementById('team-chat-enabled').checked = (settings.team_chat_enabled !== false);
 
   renderTeamsConfig(teams);
 }
@@ -135,7 +138,8 @@ document.getElementById('settings-form').addEventListener('submit', async e => {
       reset_interval_minutes: f.reset_interval_minutes.value,
       total_resets: f.total_resets.value,
       max_point_value: f.max_point_value.value,
-      qr_mode: document.getElementById('qr-mode-custom').checked ? 'custom' : 'url'
+      qr_mode: document.querySelector('input[name="qr_mode"]:checked')?.value || 'url',
+      team_chat_enabled: document.getElementById('team-chat-enabled').checked
     })
   });
   const data = await res.json();
@@ -727,6 +731,13 @@ async function deletePlayer(userId, username) {
   if (res.ok) { toast(`${username} deleted`, 'warning'); loadPlayers(); }
   else toast('Failed to delete player', 'danger');
 }
+
+document.getElementById('clear-messages-btn').addEventListener('click', async () => {
+  if (!confirm('Delete ALL chat messages? This cannot be undone.')) return;
+  const res = await fetch('/api/admin/messages', { method: 'DELETE' });
+  if (res.ok) toast('All messages cleared', 'warning');
+  else toast('Failed to clear messages', 'danger');
+});
 
 document.getElementById('clear-players-btn').addEventListener('click', async () => {
   if (!confirm('Delete ALL players? This cannot be undone.')) return;

@@ -309,6 +309,7 @@ function renderGameState(state) {
   lastGameState = state;
   renderInfoBar(state);
   renderMap(state);
+  applyTeamChatSetting(state);
 
   if (state.gameState === 'ended' && !gameOverDismissed) {
     showGameOver(state);
@@ -383,6 +384,15 @@ socket.on('gameEnded', () => {
   toast('Game over! Final scores are in.', 'danger');
 });
 
+// Admin cleared all messages — wipe local chat history and re-render.
+socket.on('clearMessages', () => {
+  allMessages = [];
+  unread.all = 0;
+  unread.team = 0;
+  updateUnreadBadges();
+  if (chatOpen) renderMessages();
+});
+
 // SOS alert — show the full-screen overlay on all clients except the one
 // who sent it (they get a confirmation toast instead to avoid showing the
 // alert to themselves).
@@ -395,6 +405,17 @@ socket.on('sosAlert', ({ triggeredBy }) => {
   if (caller) caller.textContent = triggeredBy ? `Triggered by: ${triggeredBy}` : '';
   document.getElementById('sos-overlay').classList.remove('hidden');
 });
+
+// Show or hide the team chat tab based on the teamChatEnabled game state flag.
+// Called on every game state update so changes take effect live without a refresh.
+function applyTeamChatSetting(state) {
+  const enabled = state.teamChatEnabled !== false;
+  const teamTab = document.querySelector('.chat-tab-btn[data-channel="team"]');
+  if (!teamTab) return;
+  teamTab.style.display = enabled ? '' : 'none';
+  // If the tab was just hidden and the user is currently on it, switch to all-channel.
+  if (!enabled && activeChannel === 'team') switchChannel('all');
+}
 
 // ── Chat ─────────────────────────────────────
 
@@ -596,6 +617,8 @@ socket.on('chatMessage', msg => {
   // Team messages from other teams are broadcast to everyone but filtered here
   // on the client — only keep it if it's ours.
   if (msg.channel === 'team' && (!player || msg.teamId !== player.team_id)) return;
+  // Belt-and-suspenders: suppress team messages if team chat is disabled.
+  if (msg.channel === 'team' && lastGameState && lastGameState.teamChatEnabled === false) return;
 
   allMessages.push(msg);
 
@@ -691,6 +714,13 @@ function scanQrFrame() {
     if (custom) {
       closeQrScanner();
       window.location.href = `/capture/${custom[1]}/${custom[2]}`;
+      return;
+    }
+    // Stable name-based format: CONQUEST:NAME:<slug>
+    const stable = code.data.match(/^CONQUEST:NAME:([a-z0-9-]+)$/);
+    if (stable) {
+      closeQrScanner();
+      window.location.href = `/capture-stable/${stable[1]}`;
       return;
     }
     // Public URL format — any camera app can also read these

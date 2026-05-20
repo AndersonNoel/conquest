@@ -142,11 +142,24 @@
             </div>
             <div class="form-group">
               <label class="form-label">QR Code Format</label>
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                <input type="checkbox" id="qr-mode-custom">
-                <span>App-only QR codes</span>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px">
+                <input type="radio" name="qr_mode" value="url"> <span>Public URL (any camera can scan)</span>
               </label>
-              <div class="form-hint">When on, QR codes use a private format only the in-app scanner can read. When off, QR codes are standard URLs any camera app can open.</div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px">
+                <input type="radio" name="qr_mode" value="custom"> <span>App-only (ID + token)</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="radio" name="qr_mode" value="stable"> <span>Stable (name-based, app-only)</span>
+              </label>
+              <div class="form-hint">Stable: QR codes survive location deletion/recreation as long as the name stays the same. Requires unique location names.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Team Chat</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="team-chat-enabled">
+                <span>Enable team channel</span>
+              </label>
+              <div class="form-hint">When off, the team chat tab is hidden and team messages are blocked. Past team messages are not shown.</div>
             </div>
             <button type="submit" class="btn btn-primary">Save Settings</button>
           </form>
@@ -254,6 +267,15 @@
           <button class="btn btn-ghost big-game-btn" id="end-btn" disabled>&#9632; End Game</button>
           <button class="btn btn-ghost big-game-btn" id="reset-btn">Reset Game</button>
         </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-title">Chat</div>
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:16px">
+          Permanently deletes all chat messages for all players.
+        </p>
+        <button class="btn btn-ghost btn-sm" id="clear-messages-btn"
+                style="color:var(--danger); border-color:rgba(192,64,64,0.4)">Clear All Messages</button>
       </div>
 
       <div class="card" style="border-color:rgba(192,64,64,0.3)">

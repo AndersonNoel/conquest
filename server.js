@@ -145,6 +145,26 @@ app.get('/capture-guest/:locationId/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'capture.html'));
 });
 
+// Stable QR capture routes — these handle the CONQUEST:NAME:<slug> format.
+// Only the in-app scanner navigates here; the QR content is not a URL so
+// regular camera apps cannot trigger a capture.
+app.get('/capture-stable/:slug', (req, res) => {
+  const location = store.getLocationBySlug(req.params.slug);
+  if (!location) return res.status(404).send('<h1>Invalid QR code</h1>');
+  if (!req.session.userId) return res.redirect(`/capture-guest-stable/${req.params.slug}`);
+  const result = gameEngine.captureLocation(location.id, req.session.userId);
+  const qs = result.success
+    ? `?captured=${encodeURIComponent(result.location)}&team=${encodeURIComponent(result.team)}`
+    : `?capture_error=${encodeURIComponent(result.error)}`;
+  res.redirect('/dashboard' + qs);
+});
+
+app.get('/capture-guest-stable/:slug', (req, res) => {
+  if (req.session.userId) return res.redirect(`/capture-stable/${req.params.slug}`);
+  if (!store.getLocationBySlug(req.params.slug)) return res.status(404).send('<h1>Invalid QR code</h1>');
+  res.sendFile(path.join(__dirname, 'public', 'capture.html'));
+});
+
 // Admin panel has its own password — it's not tied to any player account.
 // No requireAdmin middleware here: the HTML page handles its own auth overlay.
 app.get('/admin', (req, res) => {
@@ -299,6 +319,34 @@ app.post('/api/capture/:locationId/:token', requireAuth, (req, res) => {
   res.status(result.success ? 200 : 400).json(result);
 });
 
+// Stable capture info — same response shape as /api/capture-info/:locationId/:token
+// but looks up the location by name slug instead of ID + token.
+app.get('/api/capture-info-stable/:slug', (req, res) => {
+  const loc = store.getLocationBySlug(req.params.slug);
+  if (!loc) return res.status(404).json({ error: 'Not found' });
+
+  const team = loc.controlling_team_id ? store.getTeam(loc.controlling_team_id) : null;
+  const location = { ...loc, team_name: team?.name || null, team_color: team?.color || null };
+
+  const { game_state } = store.getSettings();
+  const user = req.session.userId ? store.getUserWithTeam(req.session.userId) : null;
+  const teams = store.getTeams().sort((a, b) => a.id - b.id);
+
+  res.json({ location, gameState: game_state, user, teams });
+});
+
+// Stable guest capture — team chosen by the guest on the capture page.
+app.post('/api/capture-guest-stable/:slug', (req, res) => {
+  const loc = store.getLocationBySlug(req.params.slug);
+  if (!loc) return res.status(404).json({ error: 'Invalid capture code' });
+
+  const teamId = parseInt(req.body.teamId);
+  if (!teamId) return res.status(400).json({ error: 'Team required' });
+
+  const result = gameEngine.captureLocationForTeam(loc.id, teamId);
+  res.status(result.success ? 200 : 400).json(result);
+});
+
 // Guest capture — no account required.  The team is chosen by the user on
 // the /capture-guest page; we perform the capture directly for that team.
 app.post('/api/capture-guest/:locationId/:token', (req, res) => {
@@ -366,7 +414,8 @@ app.get('/api/admin/settings', requireAdmin, (req, res) => {
     max_point_value: s.max_point_value,
     game_state: s.game_state,
     map_image: s.map_image,
-    qr_mode: s.qr_mode || 'url'
+    qr_mode: s.qr_mode || 'url',
+    team_chat_enabled: s.team_chat_enabled !== false
   };
   const teams = store.getTeams().sort((a, b) => a.id - b.id);
   res.json({ settings, teams });
@@ -383,8 +432,10 @@ app.post('/api/admin/settings', requireAdmin, (req, res) => {
   if (isNaN(resets)   || resets < 1   || resets > 99)    return res.status(400).json({ error: 'Total resets must be 1–99' });
   if (isNaN(maxPts)   || maxPts < 1   || maxPts > 100)   return res.status(400).json({ error: 'Max points must be 1–100' });
 
-  const qrMode = req.body.qr_mode === 'custom' ? 'custom' : 'url';
-  store.updateSettings({ num_teams: numTeams, reset_interval_minutes: interval, total_resets: resets, max_point_value: maxPts, qr_mode: qrMode });
+  const qrMode = ['custom', 'stable'].includes(req.body.qr_mode) ? req.body.qr_mode : 'url';
+  // team_chat_enabled arrives as a JSON boolean; !==false so an omitted key defaults to true
+  const teamChatEnabled = req.body.team_chat_enabled !== false;
+  store.updateSettings({ num_teams: numTeams, reset_interval_minutes: interval, total_resets: resets, max_point_value: maxPts, qr_mode: qrMode, team_chat_enabled: teamChatEnabled });
 
   // Default team names and colours follow the NATO phonetic alphabet.
   // We only create teams that don't exist yet; teams beyond numTeams are deleted.
@@ -447,13 +498,18 @@ app.post('/api/admin/locations', requireAdmin, (req, res) => {
   const { name, x_percent, y_percent } = req.body;
   if (!name || x_percent == null || y_percent == null) return res.status(400).json({ error: 'Name and position required' });
 
+  // Enforce unique slugs for all QR modes so switching to stable never breaks
+  const slug = store.toSlug(name);
+  const duplicate = store.getLocations().find(l => store.toSlug(l.name) === slug);
+  if (duplicate) return res.status(409).json({ error: 'A location with that name already exists' });
+
   const { max_point_value } = store.getSettings();
   const location = store.insertLocation({
     name,
     x_percent: parseFloat(x_percent),
     y_percent: parseFloat(y_percent),
     // Each new location starts with a random point value between 1 and max_point_value.
-    current_point_value: Math.floor(Math.random() * max_point_value) + 1,
+    current_point_value: 0, //Math.floor(Math.random() * max_point_value) + 1,
     // The capture token is a random secret embedded in the QR code URL so that
     // only someone physically present with the printed QR code can capture the location.
     capture_token: crypto.randomBytes(16).toString('hex')
@@ -465,6 +521,11 @@ app.post('/api/admin/locations', requireAdmin, (req, res) => {
 app.put('/api/admin/locations/:id', requireAdmin, (req, res) => {
   const { name, x_percent, y_percent } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
+
+  // Check slug uniqueness, excluding the location being updated itself
+  const slug = store.toSlug(name);
+  const duplicate = store.getLocations().find(l => store.toSlug(l.name) === slug && l.id !== parseInt(req.params.id));
+  if (duplicate) return res.status(409).json({ error: 'A location with that name already exists' });
 
   const updates = { name };
   // x_percent / y_percent are optional — omitting them leaves the pin position unchanged.
@@ -489,7 +550,9 @@ app.get('/api/admin/qr/:locationId', requireAdmin, async (req, res) => {
   if (!location) return res.status(404).json({ error: 'Not found' });
 
   const { qr_mode } = store.getSettings();
-  const content = qr_mode === 'custom'
+  const content = qr_mode === 'stable'
+    ? `CONQUEST:NAME:${store.toSlug(location.name)}`
+    : qr_mode === 'custom'
     ? `CONQUEST:${location.id}:${location.capture_token}`
     : `${req.protocol}://${req.get('host')}/capture/${location.id}/${location.capture_token}`;
 
@@ -501,7 +564,9 @@ app.get('/api/admin/qr/:locationId', requireAdmin, async (req, res) => {
   const viewBox  = (qrSvgRaw.match(/viewBox="([^"]+)"/) || [])[1] || '0 0 41 41';
   const qrInner  = (qrSvgRaw.match(/<svg[^>]*>([\s\S]*?)<\/svg>/) || [])[1] || '';
 
-  const modeLabel = qr_mode === 'custom' ? 'Private (app-only)' : 'Public URL';
+  const modeLabel = qr_mode === 'stable' ? 'Stable (name-based)'
+                  : qr_mode === 'custom'  ? 'Private (app-only)'
+                  : 'Public URL';
   const safeName  = location.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
@@ -614,6 +679,13 @@ app.post('/api/admin/end-game',   requireAdmin, (req, res) => { gameEngine.endGa
 app.post('/api/admin/reset-game', requireAdmin, (req, res) => { gameEngine.resetGame(); res.json({ success: true }); });
 app.post('/api/admin/sos',        requireAdmin, (req, res) => { gameEngine.triggerSOS({ name: 'Admin' }); res.json({ success: true }); });
 
+// Clear all chat messages and notify all connected dashboards to wipe their local history.
+app.delete('/api/admin/messages', requireAdmin, (req, res) => {
+  store.clearMessages();
+  io.emit('clearMessages');
+  res.json({ success: true });
+});
+
 // Players can also trigger SOS from their own dashboard.
 app.post('/api/player/sos', requireAuth, (req, res) => {
   const name = req.session.username || store.getUser(req.session.userId)?.username || 'Unknown';
@@ -629,8 +701,9 @@ app.post('/api/player/sos', requireAuth, (req, res) => {
 app.get('/api/chat/messages', requireAuth, (req, res) => {
   const user = store.getUserWithTeam(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
+  const { team_chat_enabled } = store.getSettings();
   const msgs = store.getMessages().filter(m =>
-    m.channel === 'all' || (m.channel === 'team' && m.teamId === user.team_id)
+    m.channel === 'all' || (m.channel === 'team' && team_chat_enabled !== false && m.teamId === user.team_id)
   );
   res.json(msgs);
 });
@@ -641,6 +714,9 @@ app.post('/api/chat/message', requireAuth, (req, res) => {
   if (!text) return res.status(400).json({ error: 'Message cannot be empty' });
   if (text.length > 300) return res.status(400).json({ error: 'Message too long (max 300 chars)' });
   if (!['all', 'team'].includes(channel)) return res.status(400).json({ error: 'Invalid channel' });
+  if (channel === 'team' && store.getSettings().team_chat_enabled === false) {
+    return res.status(403).json({ error: 'Team chat is currently disabled' });
+  }
 
   const user = store.getUserWithTeam(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });

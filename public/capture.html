@@ -43,17 +43,23 @@
   </div>
 
   <script>
-    // Extract locationId and token from the URL: /capture-guest/:id/:token
+    // Detect whether we were served from the stable slug route or the classic id/token route.
     const parts = window.location.pathname.split('/');
-    const locationId = parts[2];
-    const token      = parts[3];
+    const isStable   = parts[1] === 'capture-guest-stable';
+    const slug       = isStable ? parts[2] : null;
+    const locationId = isStable ? null : parts[2];
+    const token      = isStable ? null : parts[3];
+    const infoUrl    = isStable ? `/api/capture-info-stable/${slug}`
+                                : `/api/capture-info/${locationId}/${token}`;
+    const captureUrl = isStable ? `/api/capture-guest-stable/${slug}`
+                                : `/api/capture-guest/${locationId}/${token}`;
 
     async function init() {
       document.getElementById('content').innerHTML =
         '<p style="color:var(--text-muted); font-size:0.9rem; text-align:center">Loading…</p>';
 
       try {
-        const res = await fetch(`/api/capture-info/${locationId}/${token}`);
+        const res = await fetch(infoUrl);
         if (!res.ok) { showError('Invalid or expired QR code.'); return; }
         const { location, gameState, teams } = await res.json();
         renderCapturePage(location, gameState, teams || []);
@@ -127,7 +133,7 @@
       allBtns().forEach(b => b.disabled = true);
 
       try {
-        const res = await fetch(`/api/capture-guest/${locationId}/${token}`, {
+        const res = await fetch(captureUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ teamId })
@@ -139,8 +145,7 @@
           document.getElementById('content').innerHTML = `
             <div class="capture-result">
               <div class="capture-result-msg">${escHtml(data.message)}</div>
-              <div class="capture-result-sub">${pts} pt${pts !== 1 ? 's' : ''} up for grabs this round</div>
-              <a class="btn btn-ghost" href="/login">Log in for full access</a>
+              <a class="btn btn-ghost" href="/login">Log in</a>
             </div>`;
         } else {
           allBtns().forEach(b => b.disabled = false);

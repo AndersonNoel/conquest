@@ -500,14 +500,14 @@ a:hover { text-decoration: underline; }
 .map-pin:hover { transform: translate(-50%, -50%) scale(1.15); }
 
 .pin-circle {
-  width: 36px; height: 36px;
+  width: 28px; height: 28px;
   border-radius: 50%;
   border: 2.5px solid rgba(255,255,255,0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   color: #fff;
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
@@ -1501,9 +1501,9 @@ a:hover { text-decoration: underline; }
 
 /* Larger pins on the full-screen map */
 .map-fullscreen .pin-circle {
-  width: 42px;
-  height: 42px;
-  font-size: 0.9rem;
+  width: 34px;
+  height: 34px;
+  font-size: 0.8rem;
   box-shadow: 0 3px 12px rgba(0,0,0,0.7);
 }
 
