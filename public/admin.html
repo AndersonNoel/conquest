@@ -39,6 +39,12 @@
         <label class="form-label">Location Name</label>
         <input class="form-input" id="new-location-name" placeholder="e.g. Hilltop, Bridge, Bunker" maxlength="50">
       </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="new-location-force-low">
+          <span>Always low value (1&ndash;4 pts)</span>
+        </label>
+      </div>
       <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:4px">Position: <span id="location-pos-display"></span></p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="cancel-location-btn">Cancel</button>
@@ -55,6 +61,12 @@
       <div class="form-group">
         <label class="form-label">Name</label>
         <input class="form-input" id="edit-location-name" maxlength="50">
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="edit-location-force-low">
+          <span>Always low value (1&ndash;4 pts)</span>
+        </label>
       </div>
       <div class="modal-actions">
         <button class="btn btn-danger btn-sm" id="delete-location-btn" style="margin-right:auto">Delete</button>
@@ -129,6 +141,11 @@
               <label class="form-label">Reset Interval (minutes)</label>
               <input class="form-input" type="number" name="reset_interval_minutes" min="1" max="120" value="10">
               <div class="form-hint">How long between point resets</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Intermission (minutes)</label>
+              <input class="form-input" type="number" name="intermission_minutes" min="1" max="60" value="2">
+              <div class="form-hint">Break between rounds — no captures allowed, point values stay hidden until it ends</div>
             </div>
             <div class="form-group">
               <label class="form-label">Total Resets</label>
@@ -223,7 +240,8 @@
         <div class="section-header">
           <div class="card-title" style="margin-bottom:0">Players</div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm" id="random-teams-btn">Randomize Teams</button>
+            <button class="btn btn-ghost btn-sm" id="fill-unassigned-btn">Fill Unassigned</button>
+            <button class="btn btn-ghost btn-sm" id="clear-teams-btn">Clear All Teams</button>
             <button class="btn btn-ghost btn-sm" id="clear-players-btn" style="color:var(--danger); border-color:rgba(192,64,64,0.4)">Clear All</button>
           </div>
         </div>

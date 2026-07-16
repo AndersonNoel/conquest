@@ -73,10 +73,11 @@
 
       if (gameState !== 'running') {
         const stateLabels = {
-          waiting:   'The game hasn\'t started yet.',
-          countdown: 'The game is about to start — try again in a moment!',
-          paused:    'The game is currently paused.',
-          ended:     'This game has ended.'
+          waiting:      'The game hasn\'t started yet.',
+          countdown:    'The game is about to start — try again in a moment!',
+          intermission: 'The game is on a break between rounds — capture reopens when the next round starts.',
+          paused:       'The game is currently paused.',
+          ended:        'This game has ended.'
         };
         content.innerHTML = `
           <div style="text-align:center; padding:16px 0">

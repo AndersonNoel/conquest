@@ -34,9 +34,14 @@ async function init() {
   // If the session has expired, bounce back to login.
   if (res.status === 401) { window.location.href = '/login'; return; }
   player = await res.json();
-  applyMapAuthorization();
   renderPlayerHeader();
   loadMessages();
+
+  if (player.is_admin) {
+    const btn = document.getElementById('admin-mode-btn');
+    btn.classList.remove('hidden');
+    btn.addEventListener('click', enterAdminMode);
+  }
 
   // The QR-code capture route redirects here with query params to show a toast.
   const params = new URLSearchParams(window.location.search);
@@ -50,20 +55,8 @@ async function init() {
   }
 }
 
-// Show or hide the map based on the player's authorization status.
-// Unauthorized players see the default placeholder but can still use the Capture FAB.
-// renderMap() also checks this flag to prevent the socket state update from
-// overriding the hidden state.
-function applyMapAuthorization() {
-  const locked = player && player.authorized === false;
-  if (locked) {
-    document.getElementById('map-placeholder').style.display = 'none';
-    document.getElementById('map-viewport').style.display   = 'none';
-  }
-}
-
-// Show the player's callsign and coloured team badge in the header.
-// If they haven't been assigned to a team yet, just show the callsign.
+// Show the player's name and coloured team badge in the header.
+// If they haven't been assigned to a team yet, just show the name.
 function renderPlayerHeader() {
   const hdr = document.getElementById('header-player-info');
   if (!player.team_id) {
@@ -90,18 +83,21 @@ function formatTime(ms) {
 function renderInfoBar(state) {
   // Status chip
   const statusMap = {
-    waiting:   ['status-waiting',   'Waiting'],
-    countdown: ['status-countdown', 'Countdown'],
-    running:   ['status-running',   'Live'],
-    paused:    ['status-paused',    'Paused'],
-    ended:     ['status-ended',     'Game Over']
+    waiting:      ['status-waiting',      'Waiting'],
+    countdown:    ['status-countdown',    'Countdown'],
+    running:      ['status-running',      'Live'],
+    intermission: ['status-intermission', 'Intermission'],
+    paused:       ['status-paused',       'Paused'],
+    ended:        ['status-ended',        'Game Over']
   };
   const [cls, label] = statusMap[state.gameState] || ['status-waiting', state.gameState];
   document.getElementById('info-status').innerHTML = `<div class="status-chip ${cls}">${label}</div>`;
 
   // Round counter — only meaningful while the game is active.
+  // During intermission, current_reset was already incremented at round-end,
+  // so this previews the round number that's about to start.
   const roundEl = document.getElementById('info-round');
-  if (['running', 'paused', 'ended'].includes(state.gameState)) {
+  if (['running', 'intermission', 'paused', 'ended'].includes(state.gameState)) {
     // currentReset is 0-indexed (0 = first round in progress), so add 1 for display.
     roundEl.innerHTML = `Round <strong>${state.currentReset + 1}</strong>&thinsp;/&thinsp;<strong>${state.totalResets}</strong>`;
   } else {
@@ -124,6 +120,10 @@ function updateTimerDisplay(state) {
   if (state.gameState === 'running') {
     timerEl.textContent = formatTime(state.timeRemaining);
     labelEl.textContent = 'next reset';
+  } else if (state.gameState === 'intermission') {
+    timerEl.textContent = formatTime(state.timeRemaining);
+    timerEl.classList.add('intermission');
+    labelEl.textContent = 'next round';
   } else if (state.gameState === 'countdown') {
     timerEl.textContent = formatTime(state.countdownRemaining);
     timerEl.classList.add('countdown');
@@ -153,13 +153,71 @@ function renderScoreChips(teams) {
     const isMe = player && player.team_id === t.id;
     const rankIcon = '';
     return `
-      <div class="team-score-chip ${isMe ? 'my-team' : ''}"
+      <div class="team-score-chip ${isMe ? 'my-team' : ''}" data-team-id="${t.id}"
            style="${isMe ? `border-color:${t.color}` : ''}">
         <span style="width:9px;height:9px;border-radius:50%;background:${t.color};flex-shrink:0;display:inline-block"></span>
         <span style="${isMe ? `color:${t.color}` : ''}">${rankIcon}${t.name}</span>
         <strong style="font-size:1rem; color:var(--accent)">${t.total_points}</strong>
       </div>`;
   }).join('');
+}
+
+// ── Team roster popover ──────────────────────
+
+// Tapping a team's score chip shows a small popover with that team's roster.
+// Delegated listener since chips are fully re-rendered on every state update.
+document.getElementById('info-scores').addEventListener('click', e => {
+  const chip = e.target.closest('.team-score-chip');
+  if (chip) openTeamRosterPopover(parseInt(chip.dataset.teamId), chip);
+});
+
+async function openTeamRosterPopover(teamId, anchorEl) {
+  closeTeamRosterPopover();
+
+  let data;
+  try {
+    const res = await fetch(`/api/teams/${teamId}/roster`);
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+
+  const pop = document.createElement('div');
+  pop.className = 'team-roster-popover';
+  pop.innerHTML = `
+    <div class="team-roster-popover-header" style="color:${data.team.color}">${escapeHtml(data.team.name)}</div>
+    ${data.players.length === 0
+      ? '<div class="chat-empty">No players yet</div>'
+      : data.players.map(p => `
+          <div class="team-roster-popover-row">
+            ${escapeHtml(p.username)}${p.role ? ` <span style="color:var(--text-muted);font-size:0.8rem;font-style:italic">(${escapeHtml(p.role)})</span>` : ''}
+          </div>`).join('')}
+  `;
+  document.body.appendChild(pop);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  let left = rect.left;
+  let top = rect.bottom + 8;
+  left = Math.min(left, window.innerWidth - popRect.width - 8);
+  left = Math.max(8, left);
+  if (top + popRect.height > window.innerHeight - 8) top = rect.top - popRect.height - 8;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+
+  // Defer attaching the outside-click listener so the click that opened the
+  // popover doesn't immediately close it via event bubbling.
+  setTimeout(() => document.addEventListener('click', outsidePopoverClick), 0);
+}
+
+function closeTeamRosterPopover() {
+  document.querySelectorAll('.team-roster-popover').forEach(el => el.remove());
+  document.removeEventListener('click', outsidePopoverClick);
+}
+
+function outsidePopoverClick(e) {
+  if (!e.target.closest('.team-roster-popover') && !e.target.closest('.team-score-chip')) {
+    closeTeamRosterPopover();
+  }
 }
 
 // ── Map rendering ────────────────────────────
@@ -214,25 +272,29 @@ function renderPins(locations) {
   const bounds = getImageBounds(img);
   if (!bounds) { overlay.innerHTML = ''; return; }
 
+  // Limited-access players (not yet given full access) see the map, pins, and
+  // point values, but not who controls each location.
+  const fullAccess = player && player.authorized === true;
+
+  // Point values aren't reassigned until the next round actually starts, so
+  // hide the (stale, about-to-change) numbers during the break.
+  const hideValues = lastGameState && lastGameState.gameState === 'intermission';
+
   overlay.innerHTML = locations.map(loc => {
     // Convert the stored percentage (0–100) to pixels within the actual image area.
     const px = bounds.x + (loc.x_percent / 100) * bounds.w;
     const py = bounds.y + (loc.y_percent / 100) * bounds.h;
-    const color = loc.team_color || 'var(--uncontrolled)';
-    const teamLabel = loc.team_name || 'Uncontrolled';
+    const color = fullAccess ? (loc.team_color || 'var(--uncontrolled)') : 'var(--uncontrolled)';
+    const label = fullAccess ? `${loc.name} &bull; ${loc.team_name || 'Uncontrolled'}` : loc.name;
     return `
       <div class="map-pin" style="left:${px}px; top:${py}px">
-        <div class="pin-circle" style="background:${color}">${loc.current_point_value}</div>
-        <div class="pin-label">${loc.name} &bull; ${teamLabel}</div>
+        <div class="pin-circle" style="background:${color}">${hideValues ? '?' : loc.current_point_value}</div>
+        <div class="pin-label">${label}</div>
       </div>`;
   }).join('');
 }
 
 function renderMap(state) {
-  // Don't touch the map DOM if the player isn't authorized — the locked message
-  // is already showing and we don't want to reveal anything beneath it.
-  if (player && player.authorized === false) return;
-
   const placeholder = document.getElementById('map-placeholder');
   const img = document.getElementById('map-img');
 
@@ -310,12 +372,24 @@ function renderGameState(state) {
   renderInfoBar(state);
   renderMap(state);
   applyTeamChatSetting(state);
+  updateCaptureFab(state);
 
   if (state.gameState === 'ended' && !gameOverDismissed) {
     showGameOver(state);
   } else if (state.gameState !== 'ended') {
     document.getElementById('game-over-overlay').classList.add('hidden');
   }
+}
+
+// Disable the capture FAB during intermission — captures are rejected
+// server-side too, but disabling it here avoids a confusing round-trip toast.
+function updateCaptureFab(state) {
+  const fab = document.getElementById('capture-fab');
+  if (!fab) return;
+  const blocked = state.gameState === 'intermission';
+  fab.disabled = blocked;
+  fab.classList.toggle('capture-fab-disabled', blocked);
+  fab.querySelector('span').textContent = blocked ? 'Intermission' : 'Capture';
 }
 
 // ── Utilities ────────────────────────────────
@@ -335,6 +409,14 @@ async function logout() {
   if (!confirm('Are you sure you want to log out?')) return;
   await fetch('/api/logout', { method: 'POST' });
   window.location.href = '/login';
+}
+
+// Elevate a privileged player's session to admin-authenticated and jump
+// straight into the admin panel, skipping the password prompt.
+async function enterAdminMode() {
+  const res = await fetch('/api/player/enter-admin-mode', { method: 'POST' });
+  if (res.ok) window.location.href = '/admin';
+  else toast('Failed to enter admin mode', 'danger');
 }
 
 async function triggerPlayerSOS() {
@@ -366,6 +448,12 @@ socket.on('timerTick', ({ remaining }) => {
 socket.on('countdownTick', ({ remaining }) => {
   if (!lastGameState) return;
   lastGameState.countdownRemaining = remaining;
+  document.getElementById('info-timer').textContent = formatTime(remaining);
+});
+
+socket.on('intermissionTick', ({ remaining }) => {
+  if (!lastGameState) return;
+  lastGameState.timeRemaining = remaining;
   document.getElementById('info-timer').textContent = formatTime(remaining);
 });
 
@@ -650,6 +738,11 @@ let qrFrame  = null;
 
 // Open the scanner: request camera access, start the video, begin scanning.
 async function openQrScanner() {
+  if (lastGameState && lastGameState.gameState === 'intermission') {
+    toast('Capture is disabled during intermission', 'danger');
+    return;
+  }
+
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     toast('Camera not available on this device or browser', 'danger');
     return;

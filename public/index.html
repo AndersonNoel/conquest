@@ -31,18 +31,20 @@
   <!-- Header -->
   <header class="site-header">
     <div class="site-header-inner">
-      <div class="site-logo">&#9876; <span class="hdr-lbl">Capture</span></div>
-      <div class="header-spacer"></div>
-      <div class="header-player-info" id="header-player-info"></div>
-      <button class="btn btn-ghost btn-sm chat-header-btn" id="chat-toggle-btn" onclick="toggleChat()">
-        &#128172;<span class="hdr-lbl"> Chat</span>
-        <span class="chat-unread-badge hidden" id="chat-unread-badge"></span>
-      </button>
       <button class="btn btn-sm player-sos-btn" onclick="triggerPlayerSOS()">
         &#128680;<span class="hdr-lbl"> SOS</span>
       </button>
       <button class="btn btn-ghost btn-sm" onclick="logout()">
         <span class="hdr-lbl">Logout</span><span class="hdr-icon">&#10005;</span>
+      </button>
+      <div class="header-spacer"></div>
+      <div class="header-player-info" id="header-player-info"></div>
+      <button class="btn btn-ghost btn-sm hidden" id="admin-mode-btn">
+        &#128736;<span class="hdr-lbl"> Admin</span>
+      </button>
+      <button class="btn btn-ghost btn-sm chat-header-btn" id="chat-toggle-btn" onclick="toggleChat()">
+        &#128172;<span class="hdr-lbl"> Chat</span>
+        <span class="chat-unread-badge hidden" id="chat-unread-badge"></span>
       </button>
     </div>
   </header>
@@ -106,7 +108,7 @@
   </div>
 
   <!-- Capture FAB -->
-  <button class="capture-fab" onclick="openQrScanner()">
+  <button class="capture-fab" id="capture-fab" onclick="openQrScanner()">
     <span>Capture</span>
   </button>
 

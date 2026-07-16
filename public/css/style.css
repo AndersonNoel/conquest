@@ -364,6 +364,7 @@ a:hover { text-decoration: underline; }
 .status-waiting { background: rgba(122,138,122,0.2); color: var(--text-muted); }
 .status-countdown { background: rgba(204,136,51,0.2); color: var(--warning); }
 .status-running { background: rgba(68,170,68,0.2); color: var(--success); }
+.status-intermission { background: rgba(204,136,51,0.2); color: var(--warning); }
 .status-paused { background: rgba(61,122,204,0.2); color: var(--info); }
 .status-ended { background: rgba(192,64,64,0.2); color: var(--danger); }
 
@@ -500,9 +501,9 @@ a:hover { text-decoration: underline; }
 .map-pin:hover { transform: translate(-50%, -50%) scale(1.15); }
 
 .pin-circle {
-  width: 28px; height: 28px;
+  width: 22px; height: 22px;
   border-radius: 50%;
-  border: 2.5px solid rgba(255,255,255,0.7);
+  border: 2px solid rgba(255,255,255,0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -729,6 +730,8 @@ a:hover { text-decoration: underline; }
   position: relative;
 }
 
+#admin-mode-btn.hidden { display: none; }
+
 .chat-unread-badge {
   position: absolute;
   top: -4px;
@@ -900,6 +903,18 @@ a:hover { text-decoration: underline; }
 .location-pts {
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.location-lowtier-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: rgba(122,138,122,0.2);
+  border-radius: 4px;
+  padding: 1px 6px;
+  vertical-align: middle;
 }
 
 /* ── Grid utilities ─────────────────────────── */
@@ -1163,6 +1178,10 @@ a:hover { text-decoration: underline; }
   opacity: 0.85;
   transform: translateX(-50%) scale(0.97);
 }
+.capture-fab-disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 /* ── QR Scanner modal ───────────────────────── */
 
@@ -1411,9 +1430,10 @@ a:hover { text-decoration: underline; }
   line-height: 1;
 }
 
-.info-timer.countdown { color: var(--warning); }
-.info-timer.paused    { color: var(--info); opacity: 0.75; }
-.info-timer.ended     { color: var(--danger); font-size: 1.4rem; letter-spacing: 0.08em; }
+.info-timer.countdown    { color: var(--warning); }
+.info-timer.intermission { color: var(--warning); }
+.info-timer.paused       { color: var(--info); opacity: 0.75; }
+.info-timer.ended        { color: var(--danger); font-size: 1.4rem; letter-spacing: 0.08em; }
 
 .info-timer-label {
   font-size: 0.7rem;
@@ -1442,6 +1462,35 @@ a:hover { text-decoration: underline; }
 .team-score-chip.my-team {
   background: rgba(255,255,255,0.1);
   border-width: 2px;
+}
+
+.team-score-chip { cursor: pointer; }
+
+.team-roster-popover {
+  position: fixed;
+  z-index: 200;
+  min-width: 160px;
+  max-width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  padding: 10px 0;
+}
+
+.team-roster-popover-header {
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 0 14px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.team-roster-popover-row {
+  padding: 6px 14px;
+  font-size: 0.88rem;
 }
 
 /* Full-screen map area */
@@ -1501,8 +1550,8 @@ a:hover { text-decoration: underline; }
 
 /* Larger pins on the full-screen map */
 .map-fullscreen .pin-circle {
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   font-size: 0.8rem;
   box-shadow: 0 3px 12px rgba(0,0,0,0.7);
 }

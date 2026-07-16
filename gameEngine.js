@@ -2,19 +2,22 @@
 //  gameEngine.js  –  Game state machine & timer management
 //
 //  The game runs through these states:
-//    waiting → (optional countdown) → running → ended
-//                                  ↕ paused
+//    waiting → (optional countdown) → running → intermission → running → ... → ended
+//                                  ↕ paused (from either running or intermission)
 //
-//  A "reset" is the event that happens at the end of each round interval:
+//  A round ends when its interval expires:
 //   • Points are awarded to each team for every location they hold.
 //   • All location control is cleared (locations become unowned again).
-//   • Location point values are re-randomised.
-//   • If the final reset has been reached, the game ends instead.
+//   • If the final reset has been reached, the game ends instead of continuing.
+//   • Otherwise the game enters "intermission" — a fixed break during which
+//     captures are disabled and point values stay unassigned — before the
+//     next round starts and re-randomises point values.
 //
-//  Three separate Node timers keep things ticking:
-//   • resetTimer    — fires once when the current round's interval expires
-//   • countdownTimer — fires once when the pre-game countdown reaches zero
-//   • tickTimer     — fires every second to push timer updates to all clients
+//  Four separate Node timers keep things ticking:
+//   • resetTimer        — fires once when the current round's interval expires
+//   • intermissionTimer — fires once when the intermission break ends
+//   • countdownTimer    — fires once when the pre-game countdown reaches zero
+//   • tickTimer         — fires every second to push timer updates to all clients
 // ─────────────────────────────────────────────
 
 const store = require('./store');
@@ -24,9 +27,11 @@ let io;
 
 // One-shot timer that fires when the current round should end.
 let resetTimer    = null;
+// One-shot timer that fires when the intermission break should end.
+let intermissionTimer = null;
 // One-shot timer that fires when the pre-game countdown reaches zero.
 let countdownTimer = null;
-// Repeating 1-second timer that pushes timerTick / countdownTick events.
+// Repeating 1-second timer that pushes timerTick / countdownTick / intermissionTick events.
 let tickTimer     = null;
 
 // Push the full game state to every connected browser.
@@ -48,6 +53,9 @@ function getFullGameState() {
   if (settings.game_state === 'running' && settings.reset_start_time) {
     const interval = settings.reset_interval_minutes * 60 * 1000;
     timeRemaining = Math.max(0, interval - (Date.now() - settings.reset_start_time));
+  } else if (settings.game_state === 'intermission' && settings.intermission_start_time) {
+    const interval = settings.intermission_minutes * 60 * 1000;
+    timeRemaining = Math.max(0, interval - (Date.now() - settings.intermission_start_time));
   } else if (settings.game_state === 'paused') {
     // When paused we stored the remaining time — just surface it directly.
     timeRemaining = settings.paused_remaining_ms || 0;
@@ -64,6 +72,7 @@ function getFullGameState() {
     currentReset: settings.current_reset,
     totalResets: settings.total_resets,
     resetIntervalMinutes: settings.reset_interval_minutes,
+    intermissionMinutes: settings.intermission_minutes,
     maxPointValue: settings.max_point_value,
     mapImage: settings.map_image,
     teams,
@@ -76,9 +85,10 @@ function getFullGameState() {
 }
 
 // Called at the end of every round interval.
-// Awards points, clears control, randomises point values, then either
-// starts the next round or ends the game if all resets have been used.
-function processReset() {
+// Awards points and clears control, then either ends the game (if all resets
+// have been used) or enters intermission — point values stay unassigned and
+// the next round doesn't start until startNextRound() fires.
+function endRound() {
   // Clear the timer handle — we'll schedule the next one ourselves below (or not at all).
   if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
 
@@ -107,28 +117,59 @@ function processReset() {
     }))
   });
 
-  // If this was the last reset, end the game.
+  // If this was the last reset, end the game — there's no next round to wait
+  // for, so skip intermission entirely.
   if (newReset >= settings.total_resets) {
-    store.updateSettings({ game_state: 'ended', current_reset: newReset });
+    store.updateSettings({ game_state: 'ended', current_reset: newReset, reset_start_time: null });
     clearTimers();
     broadcastState();
     io.emit('gameEnded');
     return;
   }
 
-  // Otherwise: randomise point values for the next round and schedule the next reset.
-  store.randomizeLocationPoints(settings.num_teams);
-  store.updateSettings({ current_reset: newReset, reset_start_time: Date.now() });
+  // Otherwise: enter intermission. Point values are re-randomised only when
+  // startNextRound() fires at the end of the break.
+  store.updateSettings({
+    game_state: 'intermission',
+    current_reset: newReset,
+    reset_start_time: null,
+    intermission_start_time: Date.now()
+  });
 
   broadcastState();
-  scheduleReset(settings.reset_interval_minutes * 60 * 1000);
+  scheduleIntermission(settings.intermission_minutes * 60 * 1000);
 }
 
-// Schedule processReset to fire after `ms` milliseconds, cancelling any
+// Schedule endRound to fire after `ms` milliseconds, cancelling any
 // previously scheduled reset timer first.
 function scheduleReset(ms) {
   if (resetTimer) clearTimeout(resetTimer);
-  resetTimer = setTimeout(processReset, ms);
+  resetTimer = setTimeout(endRound, ms);
+}
+
+// Schedule startNextRound to fire after `ms` milliseconds, cancelling any
+// previously scheduled intermission timer first.
+function scheduleIntermission(ms) {
+  if (intermissionTimer) clearTimeout(intermissionTimer);
+  intermissionTimer = setTimeout(startNextRound, ms);
+}
+
+// Called when intermission ends. Randomises point values for the round about
+// to start and kicks off its timer.
+function startNextRound() {
+  if (intermissionTimer) { clearTimeout(intermissionTimer); intermissionTimer = null; }
+
+  const settings = store.getSettings();
+  store.randomizeLocationPoints(settings.num_teams);
+
+  store.updateSettings({
+    game_state: 'running',
+    reset_start_time: Date.now(),
+    intermission_start_time: null
+  });
+
+  broadcastState();
+  scheduleReset(settings.reset_interval_minutes * 60 * 1000);
 }
 
 // Transition from "countdown" to "running" and kick off the first round timer.
@@ -146,7 +187,8 @@ function startGameNow() {
     game_start_time: now,
     reset_start_time: now,   // round timer starts now
     current_reset: 0,
-    countdown_end_time: null
+    countdown_end_time: null,
+    intermission_start_time: null
   });
 
   broadcastState();
@@ -166,6 +208,10 @@ function startTick() {
       const interval  = settings.reset_interval_minutes * 60 * 1000;
       const remaining = Math.max(0, interval - (Date.now() - settings.reset_start_time));
       io.emit('timerTick', { remaining });
+    } else if (settings.game_state === 'intermission' && settings.intermission_start_time) {
+      const interval  = settings.intermission_minutes * 60 * 1000;
+      const remaining = Math.max(0, interval - (Date.now() - settings.intermission_start_time));
+      io.emit('intermissionTick', { remaining });
     } else if (settings.game_state === 'countdown' && settings.countdown_end_time) {
       const remaining = Math.max(0, settings.countdown_end_time - Date.now());
       io.emit('countdownTick', { remaining });
@@ -177,11 +223,12 @@ function startTick() {
   }, 1000);
 }
 
-// Stop all three timers and null their handles.
+// Stop all four timers and null their handles.
 function clearTimers() {
-  if (resetTimer)    { clearTimeout(resetTimer);    resetTimer    = null; }
-  if (countdownTimer){ clearTimeout(countdownTimer); countdownTimer = null; }
-  if (tickTimer)     { clearInterval(tickTimer);     tickTimer     = null; }
+  if (resetTimer)       { clearTimeout(resetTimer);       resetTimer       = null; }
+  if (intermissionTimer){ clearTimeout(intermissionTimer); intermissionTimer = null; }
+  if (countdownTimer)   { clearTimeout(countdownTimer);   countdownTimer   = null; }
+  if (tickTimer)        { clearInterval(tickTimer);       tickTimer        = null; }
 }
 
 module.exports = {
@@ -202,9 +249,19 @@ module.exports = {
       const remaining = interval - (Date.now() - settings.reset_start_time);
       if (remaining <= 0) {
         // The reset was supposed to have fired while the server was down — do it now.
-        processReset();
+        endRound();
       } else {
         scheduleReset(remaining);
+        startTick();
+      }
+    } else if (settings.game_state === 'intermission' && settings.intermission_start_time) {
+      const interval  = settings.intermission_minutes * 60 * 1000;
+      const remaining = interval - (Date.now() - settings.intermission_start_time);
+      if (remaining <= 0) {
+        // Intermission finished while the server was down — start the next round now.
+        startNextRound();
+      } else {
+        scheduleIntermission(remaining);
         startTick();
       }
     } else if (settings.game_state === 'countdown' && settings.countdown_end_time) {
@@ -238,38 +295,52 @@ module.exports = {
     }
   },
 
-  // Freeze the round timer.  Stores how many milliseconds were left so resumeGame
-  // can pick up exactly where it left off.
+  // Freeze the round or intermission timer (whichever is active). Stores how
+  // many milliseconds were left, and which phase it was paused from, so
+  // resumeGame can pick up exactly where it left off.
   pauseGame() {
     const settings = store.getSettings();
-    if (settings.game_state !== 'running') return false;
+    const fromState = settings.game_state;
+    if (fromState !== 'running' && fromState !== 'intermission') return false;
 
-    const interval  = settings.reset_interval_minutes * 60 * 1000;
-    const remaining = Math.max(0, interval - (Date.now() - settings.reset_start_time));
+    const intervalMs = fromState === 'running'
+      ? settings.reset_interval_minutes * 60 * 1000
+      : settings.intermission_minutes * 60 * 1000;
+    const startTime = fromState === 'running' ? settings.reset_start_time : settings.intermission_start_time;
+    const remaining = Math.max(0, intervalMs - (Date.now() - startTime));
 
     clearTimers();
-    store.updateSettings({ game_state: 'paused', paused_remaining_ms: remaining });
+    store.updateSettings({ game_state: 'paused', paused_remaining_ms: remaining, paused_from_state: fromState });
     broadcastState();
     return true;
   },
 
-  // Resume a paused game.
-  // To make the existing "time elapsed since round start" calculation still work,
-  // we synthesise a fake reset_start_time that is offset into the past by however
-  // much of the round has already elapsed.  This way getFullGameState() and
-  // processReset() don't need a special "paused" code path.
+  // Resume a paused game back into whichever phase it was paused from.
+  // To make the existing "time elapsed since phase start" calculation still work,
+  // we synthesise a fake start time that is offset into the past by however
+  // much of the phase had already elapsed.  This way getFullGameState() and
+  // endRound()/startNextRound() don't need a special "paused" code path.
   resumeGame() {
     const settings  = store.getSettings();
     if (settings.game_state !== 'paused') return false;
 
-    const remaining = settings.paused_remaining_ms || (settings.reset_interval_minutes * 60 * 1000);
-    const interval  = settings.reset_interval_minutes * 60 * 1000;
-    // If we have `remaining` ms left and the round is `interval` ms long,
-    // then the round "started" (interval - remaining) ms ago.
-    const fakeStart = Date.now() - (interval - remaining);
+    const fromState  = settings.paused_from_state || 'running';
+    const intervalMs = fromState === 'running'
+      ? settings.reset_interval_minutes * 60 * 1000
+      : settings.intermission_minutes * 60 * 1000;
+    const remaining  = settings.paused_remaining_ms || intervalMs;
+    // If we have `remaining` ms left and the phase is `intervalMs` ms long,
+    // then the phase "started" (intervalMs - remaining) ms ago.
+    const fakeStart  = Date.now() - (intervalMs - remaining);
 
-    store.updateSettings({ game_state: 'running', reset_start_time: fakeStart, paused_remaining_ms: null });
-    scheduleReset(remaining);
+    const updates = { game_state: fromState, paused_remaining_ms: null, paused_from_state: null };
+    if (fromState === 'running') updates.reset_start_time = fakeStart;
+    else                         updates.intermission_start_time = fakeStart;
+    store.updateSettings(updates);
+
+    if (fromState === 'running') scheduleReset(remaining);
+    else                          scheduleIntermission(remaining);
+
     startTick();
     broadcastState();
     return true;
@@ -292,7 +363,9 @@ module.exports = {
       game_state: 'waiting',
       current_reset: 0,
       reset_start_time: null,
+      intermission_start_time: null,
       paused_remaining_ms: null,
+      paused_from_state: null,
       countdown_end_time: null,
       game_start_time: null
     });
@@ -306,7 +379,14 @@ module.exports = {
     if (!user || !user.team_id) return { success: false, error: 'You are not assigned to a team yet' };
 
     const settings = store.getSettings();
-    if (settings.game_state !== 'running') return { success: false, error: 'Game is not currently running' };
+    if (settings.game_state !== 'running') {
+      return {
+        success: false,
+        error: settings.game_state === 'intermission'
+          ? 'Intermission — capture reopens when the next round starts'
+          : 'Game is not currently running'
+      };
+    }
 
     const location = store.getLocation(locationId);
     if (!location) return { success: false, error: 'Location not found' };
@@ -351,7 +431,14 @@ module.exports = {
     if (!team) return { success: false, error: 'Team not found' };
 
     const settings = store.getSettings();
-    if (settings.game_state !== 'running') return { success: false, error: 'Game is not currently running' };
+    if (settings.game_state !== 'running') {
+      return {
+        success: false,
+        error: settings.game_state === 'intermission'
+          ? 'Intermission — capture reopens when the next round starts'
+          : 'Game is not currently running'
+      };
+    }
 
     const location = store.getLocation(locationId);
     if (!location) return { success: false, error: 'Location not found' };
@@ -385,7 +472,7 @@ module.exports = {
   },
 
   // Broadcast an SOS alert to every connected client.
-  // opts.name is the display name of whoever triggered it (player callsign or "Admin").
+  // opts.name is the display name of whoever triggered it (player name or "Admin").
   triggerSOS(opts = {}) {
     const name = opts.name || 'Unknown';
     io.emit('sosAlert', { timestamp: Date.now(), triggeredBy: name });

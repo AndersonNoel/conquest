@@ -117,6 +117,7 @@ async function loadSettings() {
   const form = document.getElementById('settings-form');
   form.num_teams.value = settings.num_teams;
   form.reset_interval_minutes.value = settings.reset_interval_minutes;
+  form.intermission_minutes.value = settings.intermission_minutes;
   form.total_resets.value = settings.total_resets;
   form.max_point_value.value = settings.max_point_value;
   const qrMode = settings.qr_mode || 'url';
@@ -136,6 +137,7 @@ document.getElementById('settings-form').addEventListener('submit', async e => {
     body: JSON.stringify({
       num_teams: f.num_teams.value,
       reset_interval_minutes: f.reset_interval_minutes.value,
+      intermission_minutes: f.intermission_minutes.value,
       total_resets: f.total_resets.value,
       max_point_value: f.max_point_value.value,
       qr_mode: document.querySelector('input[name="qr_mode"]:checked')?.value || 'url',
@@ -362,15 +364,18 @@ document.getElementById('save-location-btn').addEventListener('click', async () 
   if (!name) { document.getElementById('new-location-name').focus(); return; }
   if (!pendingPin) return;
 
+  const forceLowTier = document.getElementById('new-location-force-low').checked;
+
   const res = await fetch('/api/admin/locations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, ...pendingPin })
+    body: JSON.stringify({ name, ...pendingPin, force_low_tier: forceLowTier })
   });
   const data = await res.json();
 
   if (data.success) {
     document.getElementById('add-location-modal').classList.add('hidden');
+    document.getElementById('new-location-force-low').checked = false;
     pendingPin = null;
     // Add to local array and re-render without a full reload.
     mapLocations.push(data.location);
@@ -541,7 +546,7 @@ function renderLocationsList() {
   list.innerHTML = mapLocations.map(loc => `
     <div class="location-item">
       <div style="width:12px;height:12px;border-radius:50%;background:${loc.team_color || 'var(--uncontrolled)'}; flex-shrink:0"></div>
-      <div class="location-name">${loc.name}</div>
+      <div class="location-name">${loc.name}${loc.force_low_tier ? ' <span class="location-lowtier-badge">Low</span>' : ''}</div>
       <div class="location-pts">${loc.current_point_value} pt${loc.current_point_value !== 1 ? 's' : ''}</div>
       <button class="btn btn-ghost btn-sm" onclick="openEditModal(${loc.id})">Edit</button>
       <button class="btn btn-ghost btn-sm" onclick="copyLocationUrl(${loc.id}, this)">Copy URL</button>
@@ -570,6 +575,7 @@ function openEditModal(id) {
   if (!loc) return;
   document.getElementById('edit-location-id').value = id;
   document.getElementById('edit-location-name').value = loc.name;
+  document.getElementById('edit-location-force-low').checked = !!loc.force_low_tier;
   document.getElementById('edit-location-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('edit-location-name').focus(), 100);
 }
@@ -582,17 +588,18 @@ document.getElementById('save-edit-btn').addEventListener('click', async () => {
   const id = document.getElementById('edit-location-id').value;
   const name = document.getElementById('edit-location-name').value.trim();
   if (!name) return;
+  const forceLowTier = document.getElementById('edit-location-force-low').checked;
 
   const res = await fetch(`/api/admin/locations/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, force_low_tier: forceLowTier })
   });
   const data = await res.json();
   if (data.success) {
     // Update local array so the list re-renders without a full reload.
     const idx = mapLocations.findIndex(l => l.id === parseInt(id));
-    if (idx !== -1) mapLocations[idx].name = name;
+    if (idx !== -1) { mapLocations[idx].name = name; mapLocations[idx].force_low_tier = forceLowTier; }
     document.getElementById('edit-location-modal').classList.add('hidden');
     renderAdminPins();
     renderLocationsList();
@@ -644,6 +651,7 @@ async function loadPlayers() {
           <th>Map Access</th>
           <th>Role</th>
           <th>Team</th>
+          <th>Admin</th>
           <th></th>
           <th></th>
         </tr>
@@ -651,14 +659,15 @@ async function loadPlayers() {
       <tbody>
         ${players.map(p => {
           const hasAccess = p.authorized !== false;
+          const isAdmin = !!p.is_admin;
           return `
           <tr>
             <td><div style="font-weight:600">${p.username}</div></td>
             <td>
               ${hasAccess
-                ? `<button class="btn btn-primary btn-sm" onclick="unauthorizeUser(${p.id})">Authorized</button>`
+                ? `<button class="btn btn-primary btn-sm" onclick="unauthorizeUser(${p.id})">Full Access</button>`
                 : `<button class="btn btn-ghost btn-sm" style="color:var(--danger);border-color:rgba(192,64,64,0.4)"
-                           onclick="authorizeUser(${p.id})">Denied</button>`}
+                           onclick="authorizeUser(${p.id})">Limited</button>`}
             </td>
             <td>
               <input class="form-input" type="text" placeholder="e.g. Captain"
@@ -670,6 +679,11 @@ async function loadPlayers() {
               ${p.team_id
                 ? `<span style="color:${p.team_color}; font-weight:600">${p.team_name}</span>`
                 : `<span class="text-muted">Unassigned</span>`}
+            </td>
+            <td>
+              ${isAdmin
+                ? `<button class="btn btn-primary btn-sm" onclick="revokeAdmin(${p.id})">Admin</button>`
+                : `<button class="btn btn-ghost btn-sm" onclick="grantAdmin(${p.id})">Grant</button>`}
             </td>
             <td>
               <select class="form-select" style="width:auto; font-size:0.85rem"
@@ -700,6 +714,20 @@ async function unauthorizeUser(userId) {
   const res = await fetch(`/api/admin/unauthorize-user/${userId}`, { method: 'POST' });
   if (res.ok) { toast('Map access revoked', 'warning'); loadPlayers(); }
   else toast('Failed to revoke access', 'danger');
+}
+
+// Grant a player admin privileges.
+async function grantAdmin(userId) {
+  const res = await fetch(`/api/admin/players/${userId}/grant-admin`, { method: 'POST' });
+  if (res.ok) { toast('Admin privileges granted!', 'success'); loadPlayers(); }
+  else toast('Failed to grant admin', 'danger');
+}
+
+// Revoke a player's admin privileges.
+async function revokeAdmin(userId) {
+  const res = await fetch(`/api/admin/players/${userId}/revoke-admin`, { method: 'POST' });
+  if (res.ok) { toast('Admin privileges revoked', 'warning'); loadPlayers(); }
+  else toast('Failed to revoke admin', 'danger');
 }
 
 // Update a player's role label.
@@ -746,16 +774,27 @@ document.getElementById('clear-players-btn').addEventListener('click', async () 
   else toast('Failed to clear players', 'danger');
 });
 
-// Randomly sort all registered players into teams.
-// The server shuffles then assigns round-robin so teams end up as equal-sized
-// as possible.
-document.getElementById('random-teams-btn').addEventListener('click', async () => {
-  if (!confirm('Randomly sort ALL players into teams? This will override current assignments.')) return;
-
-  const res = await fetch('/api/admin/random-teams', { method: 'POST' });
+// Assign every unassigned player to a team, balancing team sizes.
+// Players who already have a team are left untouched.
+document.getElementById('fill-unassigned-btn').addEventListener('click', async () => {
+  const res = await fetch('/api/admin/fill-unassigned-teams', { method: 'POST' });
   const data = await res.json();
   if (data.success) {
-    toast('Players randomly sorted into teams!', 'success');
+    toast('Unassigned players sorted into teams!', 'success');
+    loadPlayers();
+  } else {
+    toast(data.error || 'Failed', 'danger');
+  }
+});
+
+// Remove every player's team assignment.
+document.getElementById('clear-teams-btn').addEventListener('click', async () => {
+  if (!confirm('Remove ALL players from their teams?')) return;
+
+  const res = await fetch('/api/admin/clear-team-assignments', { method: 'POST' });
+  const data = await res.json();
+  if (data.success) {
+    toast('All team assignments cleared', 'warning');
     loadPlayers();
   } else {
     toast(data.error || 'Failed', 'danger');
@@ -771,18 +810,20 @@ function renderControlStatus(state) {
   if (!state) return;
 
   const statusMap = {
-    waiting:   'WAITING',
-    countdown: 'COUNTDOWN',
-    running:   'LIVE',
-    paused:    'PAUSED',
-    ended:     'ENDED'
+    waiting:      'WAITING',
+    countdown:    'COUNTDOWN',
+    running:      'LIVE',
+    intermission: 'INTERMISSION',
+    paused:       'PAUSED',
+    ended:        'ENDED'
   };
   const colorMap = {
-    waiting:   'var(--text-muted)',
-    countdown: 'var(--warning)',
-    running:   'var(--success)',
-    paused:    'var(--info)',
-    ended:     'var(--danger)'
+    waiting:      'var(--text-muted)',
+    countdown:    'var(--warning)',
+    running:      'var(--success)',
+    intermission: 'var(--warning)',
+    paused:       'var(--info)',
+    ended:        'var(--danger)'
   };
 
   const stateLabel = statusMap[state.gameState] || state.gameState.toUpperCase();
@@ -792,13 +833,15 @@ function renderControlStatus(state) {
     <div style="font-size:2rem; font-weight:900; color:${stateColor}; margin-bottom:8px">${stateLabel}</div>
   `;
 
-  if (state.gameState === 'running' || state.gameState === 'paused') {
+  if (['running', 'intermission', 'paused'].includes(state.gameState)) {
     // currentReset is 0-indexed, add 1 for a human-readable round number.
     statusHtml += `<div class="info-chip">Round <strong>${state.currentReset + 1}</strong> / ${state.totalResets}</div>`;
   }
 
   if (state.gameState === 'running' && state.timeRemaining != null) {
     statusHtml += `<div class="info-chip" style="margin-top:6px">Next reset in <strong>${formatTime(state.timeRemaining)}</strong></div>`;
+  } else if (state.gameState === 'intermission' && state.timeRemaining != null) {
+    statusHtml += `<div class="info-chip" style="margin-top:6px; color:var(--warning)">Next round in <strong>${formatTime(state.timeRemaining)}</strong></div>`;
   } else if (state.gameState === 'countdown' && state.countdownRemaining != null) {
     statusHtml += `<div class="info-chip" style="margin-top:6px">Starting in <strong>${formatTime(state.countdownRemaining)}</strong></div>`;
   } else if (state.gameState === 'paused') {
@@ -828,9 +871,9 @@ function renderControlStatus(state) {
   const endBtn = document.getElementById('end-btn');
 
   const canStart  = ['waiting', 'ended'].includes(state.gameState);
-  const canPause  = state.gameState === 'running';
+  const canPause  = ['running', 'intermission'].includes(state.gameState);
   const canResume = state.gameState === 'paused';
-  const canEnd    = ['running', 'paused', 'countdown'].includes(state.gameState);
+  const canEnd    = ['running', 'paused', 'countdown', 'intermission'].includes(state.gameState);
 
   startBtn.disabled = !canStart;
   startBtn.textContent = '▶ Start Game';
@@ -846,11 +889,13 @@ function renderControlStatus(state) {
   // Update the slim status bar visible across all tabs.
   const bar = document.getElementById('admin-status-bar');
   let barHtml = `<div class="status-chip status-${state.gameState}">${stateLabel}</div>`;
-  if (state.gameState === 'running' || state.gameState === 'paused') {
+  if (['running', 'intermission', 'paused'].includes(state.gameState)) {
     barHtml += `<div class="info-chip">Round <strong>${state.currentReset + 1}/${state.totalResets}</strong></div>`;
   }
   if (state.gameState === 'running' && state.timeRemaining != null) {
     barHtml += `<div class="info-chip">Reset in <strong>${formatTime(state.timeRemaining)}</strong></div>`;
+  } else if (state.gameState === 'intermission' && state.timeRemaining != null) {
+    barHtml += `<div class="info-chip">Next round in <strong>${formatTime(state.timeRemaining)}</strong></div>`;
   }
   bar.innerHTML = barHtml;
 }
@@ -950,6 +995,11 @@ socket.on('timerTick', ({ remaining }) => {
 socket.on('countdownTick', ({ remaining }) => {
   if (!gameState) return;
   renderControlStatus({ ...gameState, countdownRemaining: remaining });
+});
+
+socket.on('intermissionTick', ({ remaining }) => {
+  if (!gameState || gameState.gameState !== 'intermission') return;
+  renderControlStatus({ ...gameState, timeRemaining: remaining });
 });
 
 socket.on('locationCaptured', ({ locationName, teamName }) => {

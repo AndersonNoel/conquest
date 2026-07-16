@@ -50,12 +50,15 @@ const DEFAULT_SETTINGS = {
   admin_password_hash: null,
   num_teams: 2,
   reset_interval_minutes: 10,
+  intermission_minutes: 2,     // length of the break between rounds
   total_resets: 5,
   max_point_value: 10,
-  game_state: 'waiting',       // waiting | countdown | running | paused | ended
+  game_state: 'waiting',       // waiting | countdown | running | intermission | paused | ended
   current_reset: 0,            // how many rounds have completed
   reset_start_time: null,      // Date.now() when the current round started
-  paused_remaining_ms: null,   // ms left on the round timer when the game was paused
+  intermission_start_time: null, // Date.now() when the current intermission began
+  paused_remaining_ms: null,   // ms left on the round/intermission timer when the game was paused
+  paused_from_state: null,     // 'running' | 'intermission' — which phase to restore on resume
   game_start_time: null,       // Date.now() when the current game started
   countdown_end_time: null,    // Date.now() target when pre-game countdown expires
   map_image: null,             // filename of the uploaded map (e.g. "map.jpg")
@@ -154,7 +157,7 @@ function getUserByUsername(username) {
 
 function insertUser(data) {
   // created_at is a Unix timestamp (seconds) — used mainly for sorting in the admin UI.
-  const user = { team_id: null, created_at: Math.floor(Date.now() / 1000), ...data, id: nextId(users) };
+  const user = { team_id: null, created_at: Math.floor(Date.now() / 1000), is_admin: false, ...data, id: nextId(users) };
   users.push(user);
   save('users', users);
   return { ...user };
@@ -241,8 +244,8 @@ function getLocationBySlug(slug) {
 }
 
 function insertLocation(data) {
-  // New locations start with no controlling team.
-  const loc = { controlling_team_id: null, ...data, id: nextId(locations) };
+  // New locations start with no controlling team and aren't forced low-tier.
+  const loc = { controlling_team_id: null, force_low_tier: false, ...data, id: nextId(locations) };
   locations.push(loc);
   save('locations', locations);
   return { ...loc };
@@ -270,12 +273,20 @@ function resetAllLocationControl() {
 // Assign each location a new random point value between 1 and maxPts.
 // Called at game start and after each reset so point values vary between rounds,
 // encouraging teams to re-evaluate which locations are worth fighting over.
+// Locations flagged `force_low_tier` always land in the 1–4 range, independent
+// of the tier lottery below — they're excluded from it entirely.
 function randomizeLocationPoints(numTeams) {
   // Pick a random integer between lo and hi inclusive.
   const rand = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1)) + lo;
 
+  const valueMap = {};
+
+  const forced = locations.filter(l => l.force_low_tier);
+  const normal = locations.filter(l => !l.force_low_tier);
+  for (const l of forced) valueMap[l.id] = rand(1, 4);
+
   // Shuffle location IDs so tier assignment varies each round.
-  const ids = locations.map(l => l.id).sort(() => Math.random() - 0.5);
+  const ids = normal.map(l => l.id).sort(() => Math.random() - 0.5);
 
   const values = [];
 
@@ -297,7 +308,7 @@ function randomizeLocationPoints(numTeams) {
   while (values.length < ids.length) values.push(rand(1, 4));
 
   // Map values back to locations by shuffled ID order.
-  const valueMap = Object.fromEntries(ids.map((id, i) => [id, values[i]]));
+  ids.forEach((id, i) => { valueMap[id] = values[i]; });
   locations = locations.map(l => ({ ...l, current_point_value: valueMap[l.id] }));
   save('locations', locations);
 }

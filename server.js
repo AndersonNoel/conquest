@@ -196,10 +196,10 @@ app.get('/capture/:locationId/:token', (req, res) => {
 // Shared validation used by both /api/register and /api/login.
 // Returns an error message string, or null if everything looks good.
 function validateCredentials(raw, password) {
-  if (!raw)            return 'Please enter a callsign';
-  if (raw.length < 2)  return 'Callsign must be at least 2 characters';
-  if (raw.length > 30) return 'Callsign must be 30 characters or less';
-  if (!/^[a-zA-Z0-9 _\-]+$/.test(raw)) return 'Callsign can only contain letters, numbers, spaces, hyphens, and underscores';
+  if (!raw)            return 'Please enter a name';
+  if (raw.length < 2)  return 'Name must be at least 2 characters';
+  if (raw.length > 30) return 'Name must be 30 characters or less';
+  if (!/^[a-zA-Z0-9 _\-]+$/.test(raw)) return 'Name can only contain letters, numbers, spaces, hyphens, and underscores';
   if (!password || password.length < 4) return 'Password must be at least 4 characters';
   return null;
 }
@@ -213,8 +213,8 @@ app.post('/api/register', async (req, res) => {
   if (err) return res.status(400).json({ error: err });
   if (password !== confirm) return res.status(400).json({ error: 'Passwords do not match' });
 
-  // Callsigns are case-insensitive — "Alpha" and "alpha" are the same player.
-  if (store.getUserByUsername(raw)) return res.status(409).json({ error: 'That callsign is already taken' });
+  // Names are case-insensitive — "Alpha" and "alpha" are the same player.
+  if (store.getUserByUsername(raw)) return res.status(409).json({ error: 'That name is already taken' });
 
   // bcrypt cost factor 10 is the recommended default — expensive enough to slow
   // brute-force attacks but fast enough that a single login doesn't feel slow.
@@ -242,7 +242,7 @@ app.post('/api/login', async (req, res) => {
   if (err) return res.status(400).json({ error: err });
 
   const user = store.getUserByUsername(raw);
-  if (!user) return res.status(404).json({ error: 'Callsign not found' });
+  if (!user) return res.status(404).json({ error: 'Name not found' });
 
   // bcrypt.compare handles null/empty hashes safely — returns false rather than throwing.
   if (!user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
@@ -288,6 +288,31 @@ app.get('/api/player/teammates', requireAuth, (req, res) => {
     .map(u => ({ id: u.id, username: u.username, role: u.role || null }))
     .sort((a, b) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
   res.json(teammates);
+});
+
+// Returns the roster (id, username, role) for any team, not just the caller's
+// own — used by the tap-to-view-roster popover on the team score chips.
+app.get('/api/teams/:id/roster', requireAuth, (req, res) => {
+  const teamId = parseInt(req.params.id);
+  const team = store.getTeam(teamId);
+  if (!team) return res.status(404).json({ error: 'Team not found' });
+
+  const players = store.getUsers()
+    .filter(u => u.team_id === teamId)
+    .map(u => ({ id: u.id, username: u.username, role: u.role || null }))
+    .sort((a, b) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
+
+  res.json({ team: { id: team.id, name: team.name, color: team.color }, players });
+});
+
+// Lets a player with is_admin=true elevate their session to admin-authenticated
+// without needing the shared admin password — so they can jump into the admin
+// panel mid-game without signing out of their player account.
+app.post('/api/player/enter-admin-mode', requireAuth, (req, res) => {
+  const user = store.getUser(req.session.userId);
+  if (!user || !user.is_admin) return res.status(403).json({ error: 'You do not have admin privileges' });
+  req.session.adminAuthenticated = true;
+  res.json({ success: true });
 });
 
 // ── Capture API ──────────────────────────────
@@ -410,6 +435,7 @@ app.get('/api/admin/settings', requireAdmin, (req, res) => {
   const settings = {
     num_teams: s.num_teams,
     reset_interval_minutes: s.reset_interval_minutes,
+    intermission_minutes: s.intermission_minutes,
     total_resets: s.total_resets,
     max_point_value: s.max_point_value,
     game_state: s.game_state,
@@ -422,20 +448,22 @@ app.get('/api/admin/settings', requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/settings', requireAdmin, (req, res) => {
-  const numTeams = parseInt(req.body.num_teams);
-  const interval = parseInt(req.body.reset_interval_minutes);
-  const resets   = parseInt(req.body.total_resets);
-  const maxPts   = parseInt(req.body.max_point_value);
+  const numTeams     = parseInt(req.body.num_teams);
+  const interval     = parseInt(req.body.reset_interval_minutes);
+  const intermission = parseInt(req.body.intermission_minutes);
+  const resets       = parseInt(req.body.total_resets);
+  const maxPts       = parseInt(req.body.max_point_value);
 
   if (isNaN(numTeams) || numTeams < 2 || numTeams > 6)   return res.status(400).json({ error: 'Teams must be 2–6' });
   if (isNaN(interval) || interval < 1 || interval > 120) return res.status(400).json({ error: 'Reset interval must be 1–120 minutes' });
+  if (isNaN(intermission) || intermission < 1 || intermission > 60) return res.status(400).json({ error: 'Intermission must be 1–60 minutes' });
   if (isNaN(resets)   || resets < 1   || resets > 99)    return res.status(400).json({ error: 'Total resets must be 1–99' });
   if (isNaN(maxPts)   || maxPts < 1   || maxPts > 100)   return res.status(400).json({ error: 'Max points must be 1–100' });
 
   const qrMode = ['custom', 'stable'].includes(req.body.qr_mode) ? req.body.qr_mode : 'url';
   // team_chat_enabled arrives as a JSON boolean; !==false so an omitted key defaults to true
   const teamChatEnabled = req.body.team_chat_enabled !== false;
-  store.updateSettings({ num_teams: numTeams, reset_interval_minutes: interval, total_resets: resets, max_point_value: maxPts, qr_mode: qrMode, team_chat_enabled: teamChatEnabled });
+  store.updateSettings({ num_teams: numTeams, reset_interval_minutes: interval, intermission_minutes: intermission, total_resets: resets, max_point_value: maxPts, qr_mode: qrMode, team_chat_enabled: teamChatEnabled });
 
   // Default team names and colours follow the NATO phonetic alphabet.
   // We only create teams that don't exist yet; teams beyond numTeams are deleted.
@@ -512,7 +540,8 @@ app.post('/api/admin/locations', requireAdmin, (req, res) => {
     current_point_value: 0, //Math.floor(Math.random() * max_point_value) + 1,
     // The capture token is a random secret embedded in the QR code URL so that
     // only someone physically present with the printed QR code can capture the location.
-    capture_token: crypto.randomBytes(16).toString('hex')
+    capture_token: crypto.randomBytes(16).toString('hex'),
+    force_low_tier: !!req.body.force_low_tier
   });
 
   res.json({ success: true, location });
@@ -531,6 +560,7 @@ app.put('/api/admin/locations/:id', requireAdmin, (req, res) => {
   // x_percent / y_percent are optional — omitting them leaves the pin position unchanged.
   if (x_percent != null) updates.x_percent = parseFloat(x_percent);
   if (y_percent != null) updates.y_percent = parseFloat(y_percent);
+  if (req.body.force_low_tier !== undefined) updates.force_low_tier = !!req.body.force_low_tier;
 
   const location = store.updateLocation(parseInt(req.params.id), updates);
   if (!location) return res.status(404).json({ error: 'Location not found' });
@@ -620,6 +650,21 @@ app.post('/api/admin/players/:id/role', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
+// Grant a player admin privileges — lets them switch into admin mode from
+// their dashboard without needing the shared admin password.
+app.post('/api/admin/players/:id/grant-admin', requireAdmin, (req, res) => {
+  const user = store.updateUser(parseInt(req.params.id), { is_admin: true });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ success: true });
+});
+
+// Revoke a player's admin privileges.
+app.post('/api/admin/players/:id/revoke-admin', requireAdmin, (req, res) => {
+  const user = store.updateUser(parseInt(req.params.id), { is_admin: false });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ success: true });
+});
+
 app.delete('/api/admin/players/:id', requireAdmin, (req, res) => {
   store.deleteUser(parseInt(req.params.id));
   res.json({ success: true });
@@ -631,17 +676,34 @@ app.delete('/api/admin/players', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Shuffle all players evenly across teams in round-robin order.
-// Uses a Fisher-Yates-style shuffle (sort with random comparator) then
-// assigns team[i % numTeams] to each player.
-app.post('/api/admin/random-teams', requireAdmin, (req, res) => {
-  const teams   = store.getTeams().sort((a, b) => a.id - b.id);
-  const players = store.getUsers();
+// Assign every player who doesn't already have a team to one, balancing team
+// sizes as we go (each unassigned player goes to whichever team currently has
+// the fewest members). Players who already have a team are left untouched.
+app.post('/api/admin/fill-unassigned-teams', requireAdmin, (req, res) => {
+  const teams = store.getTeams().sort((a, b) => a.id - b.id);
   if (teams.length === 0) return res.status(400).json({ error: 'No teams configured' });
 
-  const shuffled = [...players].sort(() => Math.random() - 0.5);
-  shuffled.forEach((p, i) => store.updateUser(p.id, { team_id: teams[i % teams.length].id }));
+  const players    = store.getUsers();
+  const unassigned = players.filter(p => !p.team_id);
+  if (unassigned.length === 0) return res.json({ success: true });
 
+  const counts = new Map(teams.map(t => [t.id, 0]));
+  players.forEach(p => { if (p.team_id && counts.has(p.team_id)) counts.set(p.team_id, counts.get(p.team_id) + 1); });
+
+  const shuffled = [...unassigned].sort(() => Math.random() - 0.5);
+  shuffled.forEach(p => {
+    let target = teams[0];
+    for (const t of teams) if (counts.get(t.id) < counts.get(target.id)) target = t;
+    store.updateUser(p.id, { team_id: target.id });
+    counts.set(target.id, counts.get(target.id) + 1);
+  });
+
+  res.json({ success: true });
+});
+
+// Remove every player's team assignment, leaving them all unassigned.
+app.post('/api/admin/clear-team-assignments', requireAdmin, (req, res) => {
+  store.getUsers().forEach(p => store.updateUser(p.id, { team_id: null }));
   res.json({ success: true });
 });
 
@@ -649,7 +711,7 @@ app.post('/api/admin/random-teams', requireAdmin, (req, res) => {
 
 app.post('/api/admin/start-game', requireAdmin, (req, res) => {
   const { game_state } = store.getSettings();
-  if (game_state === 'running' || game_state === 'countdown') {
+  if (['running', 'countdown', 'intermission'].includes(game_state)) {
     return res.status(400).json({ error: 'Game is already running' });
   }
   if (store.getLocations().length === 0) {
@@ -665,7 +727,7 @@ app.post('/api/admin/start-game', requireAdmin, (req, res) => {
 // current game state.
 app.post('/api/admin/pause-game', requireAdmin, (req, res) => {
   const { game_state } = store.getSettings();
-  if (game_state === 'running') {
+  if (game_state === 'running' || game_state === 'intermission') {
     gameEngine.pauseGame();
     return res.json({ success: true, action: 'paused' });
   } else if (game_state === 'paused') {

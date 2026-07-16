@@ -133,7 +133,7 @@
 
     <form id="login-form">
       <input class="join-name-input" type="text" id="username"
-             placeholder="Callsign..." autocomplete="username"
+             placeholder="Name..." autocomplete="username"
              maxlength="30" autocorrect="off" autocapitalize="words" required>
       <input class="join-name-input" type="password" id="password"
              placeholder="Password..." autocomplete="current-password"
@@ -183,10 +183,10 @@
       loginBtn.disabled    = false;
       loginBtn.textContent = 'Log In';
 
-      // On 404, hint that the callsign doesn't exist and they should sign up.
+      // On 404, hint that the name doesn't exist and they should sign up.
       if (res.status === 404) {
         alertBox.innerHTML = `<div class="alert alert-error">
-          Callsign not found. <a href="/register" style="color:inherit;font-weight:700">Sign up</a> to create an account.
+          Name not found. <a href="/register" style="color:inherit;font-weight:700">Sign up</a> to create an account.
         </div>`;
       } else {
         alertBox.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
