@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "52:3000"   # Cloudflare connects to port 52; the app listens on 3000 inside
+      - "51:3000"   # Cloudflare connects to port 52; the app listens on 3000 inside
     environment:
       - NODE_ENV=production
       - PORT=3000

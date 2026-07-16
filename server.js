@@ -487,7 +487,7 @@ app.post('/api/admin/settings', requireAdmin, (req, res) => {
 
   if (isNaN(numTeams) || numTeams < 2 || numTeams > 6)   return res.status(400).json({ error: 'Teams must be 2–6' });
   if (isNaN(interval) || interval < 1 || interval > 120) return res.status(400).json({ error: 'Reset interval must be 1–120 minutes' });
-  if (isNaN(intermission) || intermission < 1 || intermission > 60) return res.status(400).json({ error: 'Intermission must be 1–60 minutes' });
+  if (isNaN(intermission) || intermission < 0 || intermission > 60) return res.status(400).json({ error: 'Intermission must be 0–60 minutes' });
   if (isNaN(resets)   || resets < 1   || resets > 99)    return res.status(400).json({ error: 'Total resets must be 1–99' });
   if (isNaN(maxPts)   || maxPts < 1   || maxPts > 100)   return res.status(400).json({ error: 'Max points must be 1–100' });
 

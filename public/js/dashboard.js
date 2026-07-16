@@ -962,6 +962,20 @@ function scanQrFrame() {
   // Last known touch position during a single-finger pan.
   let lastTouchX, lastTouchY;
 
+  // Timestamp of the last single-finger touchstart, used to detect a
+  // double-tap so we can cancel the browser's native double-tap-to-zoom
+  // gesture (which operates on the real page viewport, entirely outside
+  // this transform, and would otherwise leave the player stuck zoomed in).
+  let lastTapTime = 0;
+
+  // True while the browser itself is natively zoomed in (e.g. a double-tap
+  // that slipped past the check above). When this is the case we must NOT
+  // hijack 2-finger touches for our own transform — doing so would prevent
+  // the only gesture that can undo a native zoom, leaving the player stuck.
+  function isNativelyZoomed() {
+    return window.visualViewport && window.visualViewport.scale > 1.01;
+  }
+
   // Apply the current scale + translation to the element.
   // Using translate then scale with transform-origin:0 0 means a point (px, py)
   // in element space maps to (px*scale + tx, py*scale + ty) in parent space —
@@ -999,21 +1013,34 @@ function scanQrFrame() {
 
   vp.addEventListener('touchstart', e => {
     if (e.touches.length === 2) {
+      // If the browser is already natively zoomed in, let this 2-finger
+      // gesture pass through untouched so the native pinch-zoom-out can run —
+      // that's the only thing that can undo a native zoom.
+      if (isNativelyZoomed()) return;
       e.preventDefault();
       // Record the start state so touchmove can compute deltas.
       startDist  = touchDist(e.touches);
       const m    = touchMid(e.touches);
       startMidX  = m.x; startMidY = m.y;
       startScale = scale; startTx = tx; startTy = ty;
-    } else if (e.touches.length === 1 && scale > 1) {
+    } else if (e.touches.length === 1) {
+      // A second tap landing shortly after the first is a double-tap —
+      // cancel the browser's native double-tap-to-zoom before it starts.
+      const now = Date.now();
+      if (now - lastTapTime < 350) e.preventDefault();
+      lastTapTime = now;
+
       // Only allow panning when zoomed in; at 1× there is nothing to pan.
-      lastTouchX = e.touches[0].clientX;
-      lastTouchY = e.touches[0].clientY;
+      if (scale > 1) {
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+      }
     }
   }, { passive: false });
 
   vp.addEventListener('touchmove', e => {
     if (e.touches.length === 2) {
+      if (isNativelyZoomed()) return;
       e.preventDefault();
       const ns  = clamp(startScale * (touchDist(e.touches) / startDist), 1, 5);
       const cur = touchMid(e.touches);

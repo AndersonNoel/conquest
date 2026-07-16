@@ -140,11 +140,20 @@ function endRound() {
     return;
   }
 
+  store.updateSettings({ current_reset: newReset });
+
+  // If no intermission is configured, skip straight to the next round instead
+  // of scheduling a break with a 0-minute timer (avoids a transient
+  // "intermission" state/broadcast for a break that isn't supposed to happen).
+  if (settings.intermission_minutes <= 0) {
+    startNextRound();
+    return;
+  }
+
   // Otherwise: enter intermission. Point values are re-randomised only when
   // startNextRound() fires at the end of the break.
   store.updateSettings({
     game_state: 'intermission',
-    current_reset: newReset,
     reset_start_time: null,
     intermission_start_time: Date.now()
   });
