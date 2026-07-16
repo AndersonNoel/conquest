@@ -1435,7 +1435,8 @@ a:hover { text-decoration: underline; }
 /* ── Dashboard full-screen layout ───────────── */
 
 .dashboard-page {
-  height: 100vh;
+  height: 100vh;   /* fallback for browsers without dvh support */
+  height: 100dvh;  /* tracks the actual visible viewport as mobile browser chrome shows/hides */
   overflow: hidden;
   display: flex;
   flex-direction: column;

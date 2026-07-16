@@ -736,16 +736,18 @@ async function loadPlayers() {
       </thead>
       <tbody>
         ${players.map(p => {
-          const hasAccess = p.authorized !== false;
+          const mapAccess = p.map_access || 'limited';
           const isAdmin = !!p.is_admin;
           return `
           <tr>
             <td><div style="font-weight:600">${p.username}</div></td>
             <td>
-              ${hasAccess
-                ? `<button class="btn btn-primary btn-sm" onclick="unauthorizeUser(${p.id})">Full Access</button>`
-                : `<button class="btn btn-ghost btn-sm" style="color:var(--danger);border-color:rgba(192,64,64,0.4)"
-                           onclick="authorizeUser(${p.id})">Limited</button>`}
+              <select class="form-select" style="width:auto; font-size:0.85rem"
+                      onchange="setMapAccess(${p.id}, this.value)">
+                <option value="none" ${mapAccess === 'none' ? 'selected' : ''}>No Access</option>
+                <option value="limited" ${mapAccess === 'limited' ? 'selected' : ''}>Limited</option>
+                <option value="full" ${mapAccess === 'full' ? 'selected' : ''}>Full Access</option>
+              </select>
             </td>
             <td>
               <input class="form-input" type="text" placeholder="e.g. Captain"
@@ -780,18 +782,15 @@ async function loadPlayers() {
     </table>`;
 }
 
-// Grant a player map access.
-async function authorizeUser(userId) {
-  const res = await fetch(`/api/admin/authorize-user/${userId}`, { method: 'POST' });
-  if (res.ok) { toast('Map access granted!', 'success'); loadPlayers(); }
-  else toast('Failed to authorize player', 'danger');
-}
-
-// Revoke a player's map access.
-async function unauthorizeUser(userId) {
-  const res = await fetch(`/api/admin/unauthorize-user/${userId}`, { method: 'POST' });
-  if (res.ok) { toast('Map access revoked', 'warning'); loadPlayers(); }
-  else toast('Failed to revoke access', 'danger');
+// Set a player's map-access tier ('none' | 'limited' | 'full').
+async function setMapAccess(userId, level) {
+  const res = await fetch(`/api/admin/players/${userId}/map-access`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level })
+  });
+  if (res.ok) { toast('Map access updated', 'success'); loadPlayers(); }
+  else toast('Failed to update map access', 'danger');
 }
 
 // Grant a player admin privileges.

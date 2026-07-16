@@ -118,8 +118,9 @@ app.use(session({
 // fetch()-ing and can't follow a redirect.
 // We also save the original URL so after login we can bounce them back to where
 // they were trying to go (e.g. a QR-code capture link).
-// Note: the `authorized` field on users controls map access only — unauthorized
-// users still reach the dashboard and can use chat, SOS, and the player roster.
+// Note: the `map_access` field on users controls map visibility only — even
+// 'none'-tier users still reach the dashboard and can use chat, SOS, and the
+// player roster (and can still capture locations without seeing the map).
 const requireAuth = (req, res, next) => {
   if (!req.session.userId) {
     if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not authenticated' });
@@ -242,12 +243,11 @@ app.post('/api/register', async (req, res) => {
 
   // bcrypt cost factor 10 is the recommended default — expensive enough to slow
   // brute-force attacks but fast enough that a single login doesn't feel slow.
-  // New accounts always start as unauthorized for map access — an admin must
-  // approve them in the Players tab before they can see the map.
+  // New accounts default to 'limited' map access (store.insertUser's default) —
+  // an admin can grant Full Access or drop to No Access in the Players tab.
   const user = store.insertUser({
     username: raw,
-    password_hash: await bcrypt.hash(password, 10),
-    authorized: false
+    password_hash: await bcrypt.hash(password, 10)
   });
   req.session.userId   = user.id;
   req.session.username = user.username;
@@ -704,16 +704,13 @@ app.post('/api/admin/assign-team', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Approve a player for map access.
-app.post('/api/admin/authorize-user/:id', requireAdmin, (req, res) => {
-  const user = store.updateUser(parseInt(req.params.id), { authorized: true });
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ success: true });
-});
-
-// Revoke a player's map access.
-app.post('/api/admin/unauthorize-user/:id', requireAdmin, (req, res) => {
-  const user = store.updateUser(parseInt(req.params.id), { authorized: false });
+// Set a player's map-access tier: 'none' (map hidden entirely), 'limited'
+// (map/points visible, no ownership), or 'full' (everything visible).
+const MAP_ACCESS_LEVELS = ['none', 'limited', 'full'];
+app.post('/api/admin/players/:id/map-access', requireAdmin, (req, res) => {
+  const { level } = req.body;
+  if (!MAP_ACCESS_LEVELS.includes(level)) return res.status(400).json({ error: 'Invalid map access level' });
+  const user = store.updateUser(parseInt(req.params.id), { map_access: level });
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ success: true });
 });

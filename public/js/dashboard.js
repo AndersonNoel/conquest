@@ -35,6 +35,7 @@ async function init() {
   if (res.status === 401) { window.location.href = '/login'; return; }
   player = await res.json();
   renderPlayerHeader();
+  applyMapAccessLevel();
   loadMessages();
   updateSoundMuteButton();
   updateChatSoundMuteButton();
@@ -67,6 +68,15 @@ function renderPlayerHeader() {
     hdr.innerHTML = `
       <span class="hdr-username" style="color:var(--text-muted); margin-right:4px">${player.username}</span>
       <span class="team-badge" style="background:${player.team_color}">${player.team_name}</span>`;
+  }
+}
+
+// Hide the map entirely for "No Access" players. renderMap() also checks
+// this flag so a later gameState socket push can't re-reveal it.
+function applyMapAccessLevel() {
+  if (player && player.map_access === 'none') {
+    document.getElementById('map-placeholder').style.display = 'none';
+    document.getElementById('map-viewport').style.display   = 'none';
   }
 }
 
@@ -276,7 +286,7 @@ function renderPins(locations) {
 
   // Limited-access players (not yet given full access) see the map, pins, and
   // point values, but not who controls each location.
-  const fullAccess = player && player.authorized === true;
+  const fullAccess = player && player.map_access === 'full';
 
   // Point values aren't reassigned until the next round actually starts, so
   // hide the (stale, about-to-change) numbers during the break.
@@ -297,6 +307,10 @@ function renderPins(locations) {
 }
 
 function renderMap(state) {
+  // Don't touch the map DOM for "No Access" players — it's already hidden
+  // and we don't want a socket state update to reveal it underneath.
+  if (player && player.map_access === 'none') return;
+
   const placeholder = document.getElementById('map-placeholder');
   const img = document.getElementById('map-img');
 

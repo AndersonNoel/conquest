@@ -88,6 +88,18 @@ for (const k of Object.keys(DEFAULT_SETTINGS)) {
 }
 if (_settingsMigrated) save('settings', settings);
 
+// Forward-compatibility: migrate the old boolean `authorized` map-access flag
+// (true = full, false = limited) to the new 3-tier `map_access` field
+// ('none' | 'limited' | 'full'). Existing players never get silently locked
+// out — anyone previously authorized becomes 'full', everyone else 'limited'.
+let _usersMigrated = false;
+users = users.map(u => {
+  if (u.map_access) return u;
+  _usersMigrated = true;
+  return { ...u, map_access: u.authorized === true ? 'full' : 'limited' };
+});
+if (_usersMigrated) save('users', users);
+
 // Generate the next integer ID for a new record by taking the current maximum
 // and adding 1.  Using max() rather than array.length means IDs stay unique
 // even if records have been deleted.
@@ -165,7 +177,7 @@ function getUserByUsername(username) {
 
 function insertUser(data) {
   // created_at is a Unix timestamp (seconds) — used mainly for sorting in the admin UI.
-  const user = { team_id: null, created_at: Math.floor(Date.now() / 1000), is_admin: false, ...data, id: nextId(users) };
+  const user = { team_id: null, created_at: Math.floor(Date.now() / 1000), is_admin: false, map_access: 'limited', ...data, id: nextId(users) };
   users.push(user);
   save('users', users);
   return { ...user };
