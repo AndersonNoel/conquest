@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Capture Game</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -42,6 +42,7 @@
       <button class="btn btn-ghost btn-sm hidden" id="admin-mode-btn">
         &#128736;<span class="hdr-lbl"> Admin</span>
       </button>
+      <button class="btn btn-ghost btn-sm sound-mute-btn" id="sound-mute-btn" onclick="toggleSoundMute()" title="Mute all sound effects">&#128266;</button>
       <button class="btn btn-ghost btn-sm chat-header-btn" id="chat-toggle-btn" onclick="toggleChat()">
         &#128172;<span class="hdr-lbl"> Chat</span>
         <span class="chat-unread-badge hidden" id="chat-unread-badge"></span>
@@ -62,6 +63,15 @@
       </div>
     </div>
     <div class="info-bar-scores" id="info-scores"></div>
+  </div>
+
+  <!-- Capture alert: bigger, auto-dismissing notification for every capture -->
+  <div class="capture-alert hidden" id="capture-alert">
+    <div class="capture-alert-icon">&#9873;</div>
+    <div class="capture-alert-text">
+      <div class="capture-alert-title" id="capture-alert-title"></div>
+      <div class="capture-alert-sub">Location captured!</div>
+    </div>
   </div>
 
   <!-- Full-screen map -->
@@ -96,6 +106,7 @@
           &#128100; Roster
         </button>
       </div>
+      <button class="chat-sound-mute-btn" id="chat-sound-mute-btn" onclick="toggleChatSoundMute()" title="Mute chat message sound">&#128276;</button>
       <button class="chat-close-btn" onclick="toggleChat()">&#10005;</button>
     </div>
     <div class="chat-messages" id="chat-messages"></div>

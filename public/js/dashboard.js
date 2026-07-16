@@ -36,6 +36,8 @@ async function init() {
   player = await res.json();
   renderPlayerHeader();
   loadMessages();
+  updateSoundMuteButton();
+  updateChatSoundMuteButton();
 
   if (player.is_admin) {
     const btn = document.getElementById('admin-mode-btn');
@@ -43,11 +45,11 @@ async function init() {
     btn.addEventListener('click', enterAdminMode);
   }
 
-  // The QR-code capture route redirects here with query params to show a toast.
+  // The QR-code capture route redirects here with query params to show a notification.
   const params = new URLSearchParams(window.location.search);
   if (params.has('captured')) {
-    toast(`${params.get('captured')} captured for ${params.get('team')}!`, 'success');
-    // Clean up the URL so refreshing doesn't re-show the toast.
+    showCaptureAlert(`${params.get('captured')} captured for ${params.get('team')}!`, player.team_color);
+    // Clean up the URL so refreshing doesn't re-show the notification.
     history.replaceState({}, '', '/dashboard');
   } else if (params.has('capture_error')) {
     toast(params.get('capture_error'), 'danger');
@@ -392,6 +394,77 @@ function updateCaptureFab(state) {
   fab.querySelector('span').textContent = blocked ? 'Intermission' : 'Capture';
 }
 
+// ── Sound effects ─────────────────────────────
+
+// Builds the URL for a sound event: the admin's uploaded custom clip if one
+// exists (per the last known game state), otherwise the bundled default tone.
+function soundUrl(key) {
+  const custom = lastGameState && lastGameState.sounds && lastGameState.sounds[key];
+  return custom ? `/uploads/sounds/${custom}` : `/sounds/defaults/${key}.wav`;
+}
+
+function isSoundMuted()     { return localStorage.getItem('soundMuted') === 'true'; }
+function isChatSoundMuted() { return localStorage.getItem('chatSoundMuted') === 'true'; }
+
+// Play a sound effect unless muted globally, or (for the chat message sound
+// specifically) muted via the chat-only toggle. Browsers block audio
+// autoplay until the player has interacted with the page at least once —
+// that rejection is silently ignored rather than surfaced as an error.
+function playSound(key) {
+  if (isSoundMuted()) return;
+  if (key === 'message' && isChatSoundMuted()) return;
+  new Audio(soundUrl(key)).play().catch(() => {});
+}
+
+function toggleSoundMute() {
+  localStorage.setItem('soundMuted', (!isSoundMuted()).toString());
+  updateSoundMuteButton();
+}
+
+function toggleChatSoundMute() {
+  localStorage.setItem('chatSoundMuted', (!isChatSoundMuted()).toString());
+  updateChatSoundMuteButton();
+}
+
+function updateSoundMuteButton() {
+  const btn = document.getElementById('sound-mute-btn');
+  if (!btn) return;
+  const muted = isSoundMuted();
+  btn.textContent = muted ? '\u{1F507}' : '\u{1F50A}';
+  btn.classList.toggle('muted', muted);
+}
+
+function updateChatSoundMuteButton() {
+  const btn = document.getElementById('chat-sound-mute-btn');
+  if (!btn) return;
+  const muted = isChatSoundMuted();
+  btn.textContent = muted ? '\u{1F515}' : '\u{1F514}';
+  btn.classList.toggle('muted', muted);
+}
+
+// ── Capture alert ─────────────────────────────
+
+// Handle for the auto-dismiss timer, so a new capture arriving while one is
+// already showing just replaces it and restarts the countdown (single slot,
+// no stacking).
+let captureAlertTimer = null;
+
+function showCaptureAlert(text, teamColor) {
+  const el = document.getElementById('capture-alert');
+  document.getElementById('capture-alert-title').textContent = text;
+  el.style.borderLeftColor = teamColor || 'var(--accent)';
+  el.classList.remove('hidden');
+  playSound('capture');
+
+  if (captureAlertTimer) clearTimeout(captureAlertTimer);
+  captureAlertTimer = setTimeout(dismissCaptureAlert, 5000);
+}
+
+function dismissCaptureAlert() {
+  document.getElementById('capture-alert').classList.add('hidden');
+  if (captureAlertTimer) { clearTimeout(captureAlertTimer); captureAlertTimer = null; }
+}
+
 // ── Utilities ────────────────────────────────
 
 // Display a temporary notification banner at the bottom of the screen.
@@ -457,19 +530,43 @@ socket.on('intermissionTick', ({ remaining }) => {
   document.getElementById('info-timer').textContent = formatTime(remaining);
 });
 
-// Show a toast when any team captures a location.
-socket.on('locationCaptured', ({ locationName, teamName, capturedBy }) => {
-  toast(`${capturedBy} captured ${locationName} for ${teamName}!`, 'success');
+// Show the big capture alert when any team captures a location.
+socket.on('locationCaptured', ({ locationName, teamName, teamColor, capturedBy }) => {
+  showCaptureAlert(`${capturedBy} captured ${locationName} for ${teamName}!`, teamColor);
 });
 
 // Notify players when a round ends and points are awarded.
 socket.on('resetOccurred', ({ resetNumber, totalResets }) => {
   toast(`Round ${resetNumber}/${totalResets} complete — points awarded!`, 'warning');
+  playSound('round_end');
+});
+
+// Fires once, ~60 seconds before the current round's timer expires.
+socket.on('oneMinuteWarning', () => {
+  toast('1 minute left in the round!', 'warning');
+  playSound('one_minute');
+});
+
+// Fires once, the moment round 1 begins (immediately or after a countdown).
+socket.on('gameStarted', () => {
+  playSound('game_start');
 });
 
 socket.on('gameEnded', () => {
   gameOverDismissed = false;
   toast('Game over! Final scores are in.', 'danger');
+
+  // Play the celebratory sound for the player's own team if they're a top
+  // scorer (handles ties by treating every tied top team as a winner),
+  // otherwise the team-lost sound.
+  if (player && player.team_id && lastGameState && lastGameState.teams && lastGameState.teams.length > 0) {
+    const topScore = Math.max(...lastGameState.teams.map(t => t.total_points));
+    const myTeam = lastGameState.teams.find(t => t.id === player.team_id);
+    if (myTeam) {
+      if (myTeam.total_points === topScore) playSound('victory');
+      else playSound('team_lost');
+    }
+  }
 });
 
 // Admin cleared all messages — wipe local chat history and re-render.
@@ -712,6 +809,8 @@ socket.on('chatMessage', msg => {
 
   const isMine = player && msg.authorId === player.id;
   const isActiveView = chatOpen && msg.channel === activeChannel;
+
+  if (!isMine) playSound('message');
 
   if (isActiveView) {
     renderMessages();

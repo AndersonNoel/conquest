@@ -126,6 +126,7 @@ async function loadSettings() {
   document.getElementById('team-chat-enabled').checked = (settings.team_chat_enabled !== false);
 
   renderTeamsConfig(teams);
+  renderSoundEffects(settings);
 }
 
 document.getElementById('settings-form').addEventListener('submit', async e => {
@@ -214,6 +215,83 @@ document.getElementById('change-pw-btn').addEventListener('click', async () => {
     el.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
   }
 });
+
+// ── Sound Effects ─────────────────────────────
+
+// One row per event: key -> { label, settingsField }. The bundled default
+// tone for each lives at /sounds/defaults/<key>.wav.
+const SOUND_EFFECTS = [
+  { key: 'one_minute', label: 'One-Minute Warning',      field: 'sound_one_minute' },
+  { key: 'round_end',  label: 'Round End',               field: 'sound_round_end' },
+  { key: 'message',    label: 'Message Received',        field: 'sound_message' },
+  { key: 'game_start', label: 'Game Start',              field: 'sound_game_start' },
+  { key: 'victory',    label: 'Team Victory',            field: 'sound_victory' },
+  { key: 'capture',    label: 'You Captured a Location',  field: 'sound_capture' },
+  { key: 'team_lost',  label: 'Your Team Lost',           field: 'sound_team_lost' }
+];
+
+function soundUrlForAdmin(key, filename) {
+  return filename ? `/uploads/sounds/${filename}` : `/sounds/defaults/${key}.wav`;
+}
+
+function renderSoundEffects(settings) {
+  const list = document.getElementById('sound-effects-list');
+  list.innerHTML = SOUND_EFFECTS.map(s => {
+    const filename = settings[s.field];
+    return `
+    <div class="sound-effect-row" data-key="${s.key}">
+      <div class="sound-effect-label">
+        <div class="sound-effect-name">${s.label}</div>
+        <div class="sound-effect-status">${filename ? `Custom: ${filename}` : 'Using default'}</div>
+      </div>
+      <div class="sound-effect-actions">
+        <button class="btn btn-ghost btn-sm" onclick="previewSound('${s.key}')">&#9658; Play</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+          Upload
+          <input type="file" accept="audio/*" style="display:none" onchange="uploadSound('${s.key}', this)">
+        </label>
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger)" ${filename ? '' : 'disabled'}
+                onclick="resetSound('${s.key}')">Reset</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function previewSound(key) {
+  const row = document.querySelector(`.sound-effect-row[data-key="${key}"]`);
+  const status = row?.querySelector('.sound-effect-status')?.textContent || '';
+  const custom = status.startsWith('Custom: ') ? status.slice('Custom: '.length) : null;
+  new Audio(soundUrlForAdmin(key, custom)).play().catch(() => toast('Could not play sound', 'danger'));
+}
+
+async function uploadSound(key, input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('sound', file);
+
+  const res = await fetch(`/api/admin/upload-sound/${key}`, { method: 'POST', body: formData });
+  const data = await res.json();
+  if (data.success) {
+    toast('Sound uploaded!', 'success');
+    loadSettings();
+  } else {
+    toast(data.error || 'Upload failed', 'danger');
+  }
+  input.value = '';
+}
+
+async function resetSound(key) {
+  const res = await fetch(`/api/admin/sound/${key}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.success) {
+    toast('Reverted to default sound', 'warning');
+    loadSettings();
+  } else {
+    toast(data.error || 'Failed to reset', 'danger');
+  }
+}
 
 // ── Map ───────────────────────────────────────
 

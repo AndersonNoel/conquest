@@ -39,6 +39,7 @@ gameEngine.init({ io });
 
 // Make sure the uploads directory exists before multer tries to write into it.
 fs.mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
+fs.mkdirSync(path.join(__dirname, 'uploads', 'sounds'), { recursive: true });
 
 // ── Multer (file upload) ─────────────────────
 //
@@ -61,6 +62,29 @@ const uploadMap = multer({
     const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
     if (allowed.includes(path.extname(file.originalname).toLowerCase())) cb(null, true);
     else cb(new Error('Only image files allowed'));
+  }
+});
+
+// The five events a custom sound effect can be uploaded for.
+const SOUND_EVENTS = ['one_minute', 'round_end', 'message', 'game_start', 'victory', 'capture', 'team_lost'];
+
+// Sound uploads are saved as "sound_<event>.<ext>" (e.g. sound_victory.mp3),
+// same predictable-filename pattern as the map upload above.
+const soundStorage = multer.diskStorage({
+  destination: path.join(__dirname, 'uploads', 'sounds'),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `sound_${req.params.event}${ext}`);
+  }
+});
+
+const uploadSound = multer({
+  storage: soundStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },   // 5 MB cap — sound clips are short
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.mp3', '.wav', '.ogg', '.m4a'];
+    if (allowed.includes(path.extname(file.originalname).toLowerCase())) cb(null, true);
+    else cb(new Error('Only audio files allowed'));
   }
 });
 
@@ -441,7 +465,14 @@ app.get('/api/admin/settings', requireAdmin, (req, res) => {
     game_state: s.game_state,
     map_image: s.map_image,
     qr_mode: s.qr_mode || 'url',
-    team_chat_enabled: s.team_chat_enabled !== false
+    team_chat_enabled: s.team_chat_enabled !== false,
+    sound_one_minute: s.sound_one_minute,
+    sound_round_end: s.sound_round_end,
+    sound_message: s.sound_message,
+    sound_game_start: s.sound_game_start,
+    sound_victory: s.sound_victory,
+    sound_capture: s.sound_capture,
+    sound_team_lost: s.sound_team_lost
   };
   const teams = store.getTeams().sort((a, b) => a.id - b.id);
   res.json({ settings, teams });
@@ -514,6 +545,52 @@ app.post('/api/admin/upload-map', requireAdmin, uploadMap.single('map'), (req, r
   io.emit('gameState', gameEngine.getFullGameState());
 
   res.json({ success: true, filename: req.file.filename });
+});
+
+// ── Admin Sound Effects API ──────────────────
+
+// Rejects an unknown :event before multer starts writing the uploaded file
+// to disk, so an invalid event name never leaves a stray file behind.
+const validateSoundEvent = (req, res, next) => {
+  if (!SOUND_EVENTS.includes(req.params.event)) return res.status(400).json({ error: 'Unknown sound event' });
+  next();
+};
+
+app.post('/api/admin/upload-sound/:event', requireAdmin, validateSoundEvent, uploadSound.single('sound'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  // Remove any old sound file for this event with a different extension —
+  // same stale-file cleanup as the map upload above.
+  const exts = ['.mp3', '.wav', '.ogg', '.m4a'];
+  for (const ext of exts) {
+    const old = path.join(__dirname, 'uploads', 'sounds', `sound_${req.params.event}${ext}`);
+    if (old !== req.file.path && fs.existsSync(old)) fs.unlinkSync(old);
+  }
+
+  store.updateSettings({ [`sound_${req.params.event}`]: req.file.filename });
+
+  // Push the change to all connected dashboards immediately.
+  io.emit('gameState', gameEngine.getFullGameState());
+
+  res.json({ success: true, filename: req.file.filename });
+});
+
+// Revert a sound event back to its bundled default tone.
+app.delete('/api/admin/sound/:event', requireAdmin, (req, res) => {
+  const { event } = req.params;
+  if (!SOUND_EVENTS.includes(event)) return res.status(400).json({ error: 'Unknown sound event' });
+
+  const settings = store.getSettings();
+  const filename = settings[`sound_${event}`];
+  if (filename) {
+    const filePath = path.join(__dirname, 'uploads', 'sounds', filename);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+
+  store.updateSettings({ [`sound_${event}`]: null });
+  io.emit('gameState', gameEngine.getFullGameState());
+
+  res.json({ success: true });
 });
 
 // ── Admin Locations API ──────────────────────

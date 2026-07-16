@@ -34,6 +34,10 @@ let countdownTimer = null;
 // Repeating 1-second timer that pushes timerTick / countdownTick / intermissionTick events.
 let tickTimer     = null;
 
+// Whether the one-minute-remaining warning has already fired for the current
+// round — reset to false each time a new round timer is scheduled.
+let oneMinuteWarned = false;
+
 // Push the full game state to every connected browser.
 function broadcastState() {
   io.emit('gameState', getFullGameState());
@@ -80,7 +84,16 @@ function getFullGameState() {
     timeRemaining,
     countdownRemaining,
     resetStartTime: settings.reset_start_time,
-    teamChatEnabled: settings.team_chat_enabled !== false
+    teamChatEnabled: settings.team_chat_enabled !== false,
+    sounds: {
+      one_minute: settings.sound_one_minute,
+      round_end: settings.sound_round_end,
+      message: settings.sound_message,
+      game_start: settings.sound_game_start,
+      victory: settings.sound_victory,
+      capture: settings.sound_capture,
+      team_lost: settings.sound_team_lost
+    }
   };
 }
 
@@ -145,6 +158,8 @@ function endRound() {
 function scheduleReset(ms) {
   if (resetTimer) clearTimeout(resetTimer);
   resetTimer = setTimeout(endRound, ms);
+  // A new round is starting — allow the one-minute warning to fire again for it.
+  oneMinuteWarned = false;
 }
 
 // Schedule startNextRound to fire after `ms` milliseconds, cancelling any
@@ -192,6 +207,7 @@ function startGameNow() {
   });
 
   broadcastState();
+  io.emit('gameStarted');
   scheduleReset(settings.reset_interval_minutes * 60 * 1000);
 }
 
@@ -208,6 +224,10 @@ function startTick() {
       const interval  = settings.reset_interval_minutes * 60 * 1000;
       const remaining = Math.max(0, interval - (Date.now() - settings.reset_start_time));
       io.emit('timerTick', { remaining });
+      if (!oneMinuteWarned && remaining <= 60000 && remaining > 0) {
+        oneMinuteWarned = true;
+        io.emit('oneMinuteWarning');
+      }
     } else if (settings.game_state === 'intermission' && settings.intermission_start_time) {
       const interval  = settings.intermission_minutes * 60 * 1000;
       const remaining = Math.max(0, interval - (Date.now() - settings.intermission_start_time));

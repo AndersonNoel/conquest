@@ -12,6 +12,15 @@
     }
     .team-row-config:last-child { border-bottom: none; }
     .qr-preview img { max-width: 200px; border-radius: 4px; }
+
+    .sound-effect-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+    }
+    .sound-effect-row:last-child { border-bottom: none; }
+    .sound-effect-name { font-weight: 600; }
+    .sound-effect-status { font-size: 0.8rem; color: var(--text-muted); }
+    .sound-effect-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   </style>
 </head>
 <body class="page-wrap">
@@ -196,6 +205,14 @@
           </div>
           <button class="btn btn-ghost btn-sm" id="change-pw-btn">Change Password</button>
         </div>
+      </div>
+
+      <div class="card mt-16">
+        <div class="card-title">Sound Effects</div>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+          Upload a custom clip for each event, or leave it on the bundled default tone.
+        </p>
+        <div id="sound-effects-list"></div>
       </div>
     </div>
 

@@ -63,7 +63,15 @@ const DEFAULT_SETTINGS = {
   countdown_end_time: null,    // Date.now() target when pre-game countdown expires
   map_image: null,             // filename of the uploaded map (e.g. "map.jpg")
   qr_mode: 'url',              // 'url' = public URL QR | 'custom' = app-only CONQUEST: format | 'stable' = name-based CONQUEST:NAME: format
-  team_chat_enabled: true      // false hides the team channel and filters team messages
+  team_chat_enabled: true,     // false hides the team channel and filters team messages
+  // Sound effect filenames — null means "use the bundled default tone" for that event.
+  sound_one_minute: null,
+  sound_round_end: null,
+  sound_message: null,
+  sound_game_start: null,
+  sound_victory: null,
+  sound_capture: null,
+  sound_team_lost: null
 };
 
 let settings  = load('settings', { ...DEFAULT_SETTINGS });
